@@ -1,4 +1,5 @@
 require('dotenv').config();
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 
@@ -19,6 +20,9 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/health', (req, res) => res.json({ ok: true }));
+
+// LIFF frontend (static files) — served from the same service, same origin as /api
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const api = express.Router();
 api.use(liffAuth);
