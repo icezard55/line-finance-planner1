@@ -1,4 +1,4 @@
-const LIFF_ID = 'REPLACE_WITH_LIFF_ID';
+const LIFF_ID = '2011118214-fbnXxp46';
 
 const MODULES = [
   {
