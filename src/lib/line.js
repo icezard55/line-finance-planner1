@@ -22,7 +22,8 @@ async function verifyIdToken(idToken) {
   });
 
   if (!res.ok) {
-    throw new Error(`LINE ID token verification failed: ${res.status}`);
+    const detail = await res.text().catch(() => '');
+    throw new Error(`LINE ID token verification failed: ${res.status} ${detail}`);
   }
 
   return res.json(); // { sub, name, picture, email, aud, exp, ... }
