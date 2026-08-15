@@ -6,8 +6,7 @@ const MODULES = [
     fields: [
       { key: 'type', label: 'ประเภท', type: 'select', options: ['expense', 'income'], required: true },
       { key: 'amount', label: 'จำนวนเงิน', type: 'number', required: true },
-      { key: 'account_id', label: 'ช่องทางชำระเงิน', type: 'account-select', required: false },
-      { key: 'category_id', label: 'หมวด', type: 'category-select', required: false },
+      { key: 'category_id', label: 'ช่องทางชำระเงิน', type: 'category-select', required: false },
       { key: 'occurred_at', label: 'วันที่', type: 'date', required: false },
       { key: 'note', label: 'บันทึกช่วยจำ', type: 'text', required: false },
     ],
@@ -15,14 +14,6 @@ const MODULES = [
       { key: 'type', label: (r) => (r.type === 'income' ? '+' : '-') + Number(r.amount).toLocaleString('th-TH') },
       { key: 'note', label: (r) => r.note || '-' },
       { key: 'occurred_at', label: (r) => (r.occurred_at || '').slice(0, 10) },
-    ],
-  },
-  {
-    key: 'accounts', label: 'ช่องทางชำระเงิน', path: 'accounts',
-    fields: [
-      { key: 'account_name', label: 'ชื่อ', type: 'text', required: true },
-      { key: 'account_type', label: 'ประเภท', type: 'select', options: ['cash', 'bank', 'e-wallet', 'credit'], required: true },
-      { key: 'balance', label: 'ยอดคงเหลือ', type: 'number', required: false },
     ],
   },
   {
@@ -114,7 +105,6 @@ const MODULES = [
 
 let idToken = null;
 let categoriesCache = null;
-let accountsCache = null;
 let activeTab = 'dashboard';
 
 async function main() {
@@ -180,11 +170,6 @@ function renderActiveTab() {
 async function getCategories() {
   if (!categoriesCache) categoriesCache = await authFetch('/categories');
   return categoriesCache;
-}
-
-async function getAccounts() {
-  if (!accountsCache) accountsCache = await authFetch('/accounts');
-  return accountsCache;
 }
 
 async function renderDashboard() {
@@ -286,11 +271,6 @@ async function renderModule(mod) {
     const cats = await getCategories();
     categoryOptions = cats.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
   }
-  let accountOptions = '';
-  if (mod.fields.some((f) => f.type === 'account-select')) {
-    const accts = await getAccounts();
-    accountOptions = accts.map((a) => `<option value="${a.id}">${escapeHtml(a.account_name)}</option>`).join('');
-  }
 
   const rows = await authFetch('/' + mod.path);
 
@@ -303,9 +283,6 @@ async function renderModule(mod) {
       }
       if (f.type === 'category-select') {
         return `<div class="field"><label>${f.label}</label><select name="${f.key}" ${f.required ? 'required' : ''}><option value="">ไม่ระบุ</option>${categoryOptions}</select></div>`;
-      }
-      if (f.type === 'account-select') {
-        return `<div class="field"><label>${f.label}</label><select name="${f.key}" ${f.required ? 'required' : ''}><option value="">ไม่ระบุ</option>${accountOptions}</select></div>`;
       }
       return `<div class="field"><label>${f.label}</label><input type="${f.type}" name="${f.key}" ${f.required ? 'required' : ''} /></div>`;
     })
@@ -337,7 +314,6 @@ async function renderModule(mod) {
 
 function invalidateLookupCache(path) {
   if (path === 'categories') categoriesCache = null;
-  if (path === 'accounts') accountsCache = null;
 }
 
 function renderList(mod, rows) {
