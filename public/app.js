@@ -107,6 +107,13 @@ let idToken = null;
 let categoriesCache = null;
 let activeTab = 'dashboard';
 
+const KNOWN_TABS = ['dashboard', 'profile', 'analysis', ...MODULES.map((m) => m.key)];
+
+function readRequestedTab() {
+  const requested = new URLSearchParams(window.location.search).get('tab');
+  return KNOWN_TABS.includes(requested) ? requested : 'dashboard';
+}
+
 async function main() {
   await liff.init({ liffId: LIFF_ID });
   if (!liff.isLoggedIn()) {
@@ -117,6 +124,8 @@ async function main() {
   const profile = await liff.getProfile();
   document.getElementById('user-name').textContent = profile.displayName;
   if (profile.pictureUrl) document.getElementById('user-avatar').src = profile.pictureUrl;
+
+  activeTab = readRequestedTab();
 
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
@@ -145,6 +154,7 @@ function renderTabs() {
   tabs.innerHTML = '';
   const entries = [
     { key: 'dashboard', label: 'แดชบอร์ด' },
+    { key: 'analysis', label: 'วิเคราะห์' },
     { key: 'profile', label: 'โปรไฟล์' },
     ...MODULES.map((m) => ({ key: m.key, label: m.label })),
   ];
@@ -163,6 +173,7 @@ function renderTabs() {
 
 function renderActiveTab() {
   if (activeTab === 'dashboard') return renderDashboard();
+  if (activeTab === 'analysis') return renderAnalysis();
   if (activeTab === 'profile') return renderProfile();
   const mod = MODULES.find((m) => m.key === activeTab);
   if (mod) return renderModule(mod);
@@ -177,10 +188,13 @@ async function renderDashboard() {
   const content = document.getElementById('content');
   content.innerHTML = '<p class="empty">กำลังโหลด...</p>';
 
-  const [transactions, reminders] = await Promise.all([
+  const [transactions, reminders, budgets, cats] = await Promise.all([
     authFetch('/transactions'),
     authFetch('/reminders'),
+    authFetch('/budgets'),
+    getCategories(),
   ]);
+  const catName = Object.fromEntries(cats.map((c) => [c.id, c.name]));
 
   const now = new Date();
   const thisMonth = transactions.filter((t) => {
@@ -189,6 +203,20 @@ async function renderDashboard() {
   });
   const income = thisMonth.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
   const expense = thisMonth.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
+
+  const spentByCategory = {};
+  for (const t of thisMonth) {
+    if (t.type !== 'expense' || !t.category_id) continue;
+    spentByCategory[t.category_id] = (spentByCategory[t.category_id] || 0) + Number(t.amount);
+  }
+  const budgetRows = budgets.map((b) => {
+    const spent = spentByCategory[b.category_id] || 0;
+    const limit = Number(b.monthly_limit);
+    const pct = limit > 0 ? Math.min(100, (spent / limit) * 100) : 0;
+    const thresholdPct = b.alert_threshold_pct || 80;
+    const status = spent >= limit ? 'over' : limit > 0 && (spent / limit) * 100 >= thresholdPct ? 'warn' : 'ok';
+    return { name: catName[b.category_id] || 'ไม่ระบุหมวด', spent, limit, pct, status };
+  });
 
   const upcoming = reminders
     .filter((r) => r.status === 'pending')
@@ -204,6 +232,22 @@ async function renderDashboard() {
       </div>
       <div class="sub">รายรับ / รายจ่าย</div>
     </div>
+    ${
+      budgetRows.length
+        ? `<div class="section-title">งบประมาณเดือนนี้</div>
+    <div class="card">
+      ${budgetRows
+        .map(
+          (b) => `
+        <div class="cat-row">
+          <div class="cat-row-top"><span>${escapeHtml(b.name)}</span><span>${b.spent.toLocaleString('th-TH')} / ${b.limit.toLocaleString('th-TH')}</span></div>
+          <div class="cat-bar"><div class="cat-bar-fill status-${b.status}" style="width:${b.pct.toFixed(1)}%"></div></div>
+        </div>`
+        )
+        .join('')}
+    </div>`
+        : ''
+    }
     <div class="section-title">แจ้งเตือนใกล้ถึง</div>
     <div class="card">
       ${
@@ -231,6 +275,103 @@ async function renderDashboard() {
       }
     </div>
   `;
+}
+
+const THAI_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+async function renderAnalysis() {
+  const content = document.getElementById('content');
+  content.innerHTML = '<p class="empty">กำลังโหลด...</p>';
+
+  const [transactions, cats] = await Promise.all([authFetch('/transactions'), getCategories()]);
+  const catName = Object.fromEntries(cats.map((c) => [c.id, c.name]));
+
+  const now = new Date();
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    months.push({ year: now.getFullYear(), month: now.getMonth() - i, income: 0, expense: 0 });
+  }
+  // normalize month index (getMonth() - i can go negative across a year boundary)
+  for (const m of months) {
+    const d = new Date(m.year, m.month, 1);
+    m.year = d.getFullYear();
+    m.month = d.getMonth();
+  }
+
+  for (const t of transactions) {
+    const d = new Date(t.occurred_at);
+    const bucket = months.find((m) => m.year === d.getFullYear() && m.month === d.getMonth());
+    if (!bucket) continue;
+    if (t.type === 'income') bucket.income += Number(t.amount);
+    else bucket.expense += Number(t.amount);
+  }
+  const maxVal = Math.max(1, ...months.flatMap((m) => [m.income, m.expense]));
+
+  const thisMonthExpenses = transactions.filter((t) => {
+    const d = new Date(t.occurred_at);
+    return t.type === 'expense' && d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  });
+  const byCategory = {};
+  for (const t of thisMonthExpenses) {
+    const key = t.category_id ? catName[t.category_id] || 'ไม่ระบุหมวด' : 'ไม่ระบุหมวด';
+    byCategory[key] = (byCategory[key] || 0) + Number(t.amount);
+  }
+  const categoryRows = Object.entries(byCategory).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const maxCat = Math.max(1, ...categoryRows.map(([, v]) => v));
+
+  content.innerHTML = `
+    <div class="card">
+      <h3>รายรับ-รายจ่ายย้อนหลัง 6 เดือน</h3>
+      ${buildMonthlyChartSvg(months, maxVal)}
+      <div class="chart-legend">
+        <span><i class="dot income"></i>รายรับ</span>
+        <span><i class="dot expense"></i>รายจ่าย</span>
+      </div>
+    </div>
+    <div class="section-title">รายจ่ายตามหมวด (เดือนนี้)</div>
+    <div class="card">
+      ${
+        categoryRows.length
+          ? categoryRows
+              .map(
+                ([name, val]) => `
+        <div class="cat-row">
+          <div class="cat-row-top"><span>${escapeHtml(name)}</span><span>${val.toLocaleString('th-TH')}</span></div>
+          <div class="cat-bar"><div class="cat-bar-fill" style="width:${((val / maxCat) * 100).toFixed(1)}%"></div></div>
+        </div>`
+              )
+              .join('')
+          : '<p class="empty">ยังไม่มีรายจ่ายเดือนนี้</p>'
+      }
+    </div>
+  `;
+}
+
+function buildMonthlyChartSvg(months, maxVal) {
+  const w = 320;
+  const h = 170;
+  const groupW = w / months.length;
+  const barW = groupW * 0.28;
+  const gap = barW * 0.15;
+  const baseline = h - 24;
+  const scale = (v) => (v / maxVal) * (baseline - 10);
+
+  let bars = '';
+  months.forEach((m, i) => {
+    const cx = i * groupW + groupW / 2;
+    const incH = scale(m.income);
+    const expH = scale(m.expense);
+    const incX = cx - barW - gap / 2;
+    const expX = cx + gap / 2;
+    bars += `<rect x="${incX.toFixed(1)}" y="${(baseline - incH).toFixed(1)}" width="${barW.toFixed(1)}" height="${incH.toFixed(1)}" rx="2" fill="var(--accent)"></rect>`;
+    bars += `<rect x="${expX.toFixed(1)}" y="${(baseline - expH).toFixed(1)}" width="${barW.toFixed(1)}" height="${expH.toFixed(1)}" rx="2" fill="var(--danger)"></rect>`;
+    bars += `<text x="${cx.toFixed(1)}" y="${h - 8}" text-anchor="middle" font-size="10" fill="var(--muted)">${THAI_MONTHS[m.month]}</text>`;
+  });
+
+  return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="กราฟรายรับรายจ่ายย้อนหลัง 6 เดือน" style="width:100%;height:auto;display:block;">
+    <line x1="0" y1="${baseline}" x2="${w}" y2="${baseline}" stroke="var(--line)" stroke-width="1"></line>
+    ${bars}
+  </svg>`;
 }
 
 async function renderProfile() {
