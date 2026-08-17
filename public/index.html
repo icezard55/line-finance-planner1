@@ -9,12 +9,17 @@
 </head>
 <body>
   <div id="login-screen" class="screen">
+    <div class="spinner"></div>
     <p>กำลังเข้าสู่ระบบ...</p>
   </div>
 
   <div id="app" class="screen hidden">
     <header class="topbar">
-      <span id="user-name"></span>
+      <img id="user-avatar" alt="" />
+      <div class="topbar-text">
+        <p class="topbar-title">แผนการเงินส่วนตัว</p>
+        <p class="topbar-name" id="user-name"></p>
+      </div>
     </header>
 
     <nav id="tabs" class="tabs"></nav>

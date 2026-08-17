@@ -116,6 +116,7 @@ async function main() {
   idToken = liff.getIDToken();
   const profile = await liff.getProfile();
   document.getElementById('user-name').textContent = profile.displayName;
+  if (profile.pictureUrl) document.getElementById('user-avatar').src = profile.pictureUrl;
 
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
