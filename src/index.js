@@ -9,6 +9,7 @@ const webhookRouter = require('./routes/webhook');
 const profileRouter = require('./routes/profile');
 const insuranceBenefitsRouter = require('./routes/insuranceBenefits');
 const remindersJob = require('./jobs/reminders');
+const recurringJob = require('./jobs/recurring');
 
 const app = express();
 
@@ -43,6 +44,7 @@ const modules = [
   { path: 'goals', table: 'goals', columns: ['goal_name', 'goal_type', 'target_amount', 'current_amount', 'target_date', 'priority'] },
   { path: 'reminders', table: 'reminders', columns: ['source_type', 'source_id', 'title', 'due_date', 'notify_days_before', 'repeat_cycle', 'status'] },
   { path: 'employee-benefits', table: 'employee_benefits', columns: ['benefit_type', 'employer_contribution', 'employee_contribution', 'accumulated_amount', 'start_date'] },
+  { path: 'recurring-transactions', table: 'recurring_transactions', columns: ['type', 'amount', 'category_id', 'note', 'frequency', 'day_of_month', 'next_run_date', 'active'] },
 ];
 
 for (const { path, table, columns } of modules) {
@@ -60,4 +62,5 @@ const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`finance backend listening on :${port}`);
   remindersJob.start();
+  recurringJob.start();
 });

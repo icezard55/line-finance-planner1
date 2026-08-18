@@ -101,6 +101,23 @@ const MODULES = [
       { key: 'risk_level', label: 'ระดับความเสี่ยง', type: 'select', options: ['ต่ำ', 'ปานกลาง', 'สูง'], required: true },
     ],
   },
+  {
+    key: 'recurring-transactions', label: 'จดประจำ', path: 'recurring-transactions',
+    fields: [
+      { key: 'type', label: 'ประเภท', type: 'select', options: ['expense', 'income'], required: true },
+      { key: 'amount', label: 'จำนวนเงิน', type: 'number', required: true },
+      { key: 'category_id', label: 'ช่องทางชำระเงิน', type: 'category-select', required: false },
+      { key: 'note', label: 'บันทึกช่วยจำ', type: 'text', required: false },
+      { key: 'frequency', label: 'ความถี่', type: 'select', options: ['monthly', 'daily'], required: true },
+      { key: 'day_of_month', label: 'วันที่ของเดือน (ถ้าเป็นรายเดือน)', type: 'number', required: false },
+    ],
+    columns: [
+      { key: 'summary', label: (r) => (r.type === 'income' ? '+' : '-') + Number(r.amount).toLocaleString('th-TH') },
+      { key: 'note', label: (r) => r.note || '-' },
+      { key: 'schedule', label: (r) => (r.frequency === 'monthly' ? `ทุกวันที่ ${r.day_of_month || '?'}` : 'ทุกวัน') },
+      { key: 'next', label: (r) => `ครั้งถัดไป ${(r.next_run_date || '').slice(0, 10)}` },
+    ],
+  },
 ];
 
 let idToken = null;
