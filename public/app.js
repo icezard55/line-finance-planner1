@@ -482,12 +482,16 @@ function renderList(mod, rows) {
     return;
   }
   const cols = mod.columns || mod.fields.slice(0, 2).map((f) => ({ key: f.key, label: (r) => r[f.key] }));
+  const showBenefits = mod.key === 'insurance-policies';
   list.innerHTML = rows
     .map(
       (r) => `
       <div class="list-item">
         <span>${cols.map((c) => escapeHtml(String(c.label(r) ?? ''))).join(' · ')}</span>
-        <button class="del" data-id="${r.id}">ลบ</button>
+        <span class="item-actions">
+          ${showBenefits ? `<button class="link-btn" data-benefits-id="${r.id}">สิทธิ</button>` : ''}
+          <button class="del" data-id="${r.id}">ลบ</button>
+        </span>
       </div>`
     )
     .join('');
@@ -497,6 +501,77 @@ function renderList(mod, rows) {
       await authFetch('/' + mod.path + '/' + btn.dataset.id, { method: 'DELETE' });
       invalidateLookupCache(mod.path);
       renderModule(mod);
+    };
+  });
+
+  if (showBenefits) {
+    list.querySelectorAll('[data-benefits-id]').forEach((btn) => {
+      btn.onclick = () => {
+        const policy = rows.find((r) => r.id === btn.dataset.benefitsId);
+        renderInsuranceBenefits(policy, mod);
+      };
+    });
+  }
+}
+
+async function renderInsuranceBenefits(policy, parentMod) {
+  const content = document.getElementById('content');
+  content.innerHTML = '<p class="empty">กำลังโหลด...</p>';
+
+  const benefits = await authFetch(`/insurance-policies/${policy.id}/benefits`);
+
+  content.innerHTML = `
+    <button class="link-btn back-btn" id="back-to-policies">← กลับไปหน้าประกัน</button>
+    <div class="card">
+      <h3>${escapeHtml(policy.insurer)}</h3>
+      <p class="sub">${escapeHtml(policy.policy_type)} · สิทธิความคุ้มครอง</p>
+    </div>
+    <form class="entry-form" id="benefit-form">
+      <div class="field"><label>ชื่อสิทธิ</label><input name="benefit_name" required /></div>
+      <div class="field"><label>วงเงิน/สิทธิสูงสุด</label><input type="number" name="benefit_limit" /></div>
+      <div class="field"><label>ใช้ไปแล้ว</label><input type="number" name="used_amount" /></div>
+      <div class="field"><label>รอบต่ออายุ</label>
+        <select name="renew_cycle">
+          <option value="รายปี">รายปี</option>
+          <option value="ต่อครั้ง">ต่อครั้ง</option>
+        </select>
+      </div>
+      <button class="primary" type="submit">เพิ่มสิทธิ</button>
+    </form>
+    <div class="section-title">สิทธิทั้งหมด (${benefits.length})</div>
+    <div class="card" id="benefit-list">
+      ${
+        benefits.length
+          ? benefits
+              .map(
+                (b) => `
+        <div class="list-item">
+          <span>${escapeHtml(b.benefit_name)}<span class="meta"> · ${Number(b.used_amount || 0).toLocaleString('th-TH')}/${b.benefit_limit ? Number(b.benefit_limit).toLocaleString('th-TH') : '-'}</span></span>
+          <button class="del" data-bid="${b.id}">ลบ</button>
+        </div>`
+              )
+              .join('')
+          : '<p class="empty">ยังไม่มีสิทธิ</p>'
+      }
+    </div>
+  `;
+
+  document.getElementById('back-to-policies').onclick = () => renderModule(parentMod);
+
+  document.getElementById('benefit-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    for (const k of Object.keys(data)) {
+      if (data[k] === '') delete data[k];
+    }
+    await authFetch(`/insurance-policies/${policy.id}/benefits`, { method: 'POST', body: JSON.stringify(data) });
+    renderInsuranceBenefits(policy, parentMod);
+  };
+
+  document.querySelectorAll('#benefit-list .del').forEach((btn) => {
+    btn.onclick = async () => {
+      await authFetch(`/insurance-policies/${policy.id}/benefits/${btn.dataset.bid}`, { method: 'DELETE' });
+      renderInsuranceBenefits(policy, parentMod);
     };
   });
 }
