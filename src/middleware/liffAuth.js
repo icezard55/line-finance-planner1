@@ -36,8 +36,8 @@ module.exports = async function liffAuth(req, res, next) {
 };
 
 // New users start with no categories/payment methods at all, which leaves every
-// dropdown in the app empty on first use. Seed a generic starter set so the app
-// is usable immediately — the user can rename/delete/add to these freely.
+// dropdown in the app empty on first use. Seed the standard starter set so the
+// app is usable immediately — the user can rename/delete/add to these freely.
 async function seedDefaults(userId) {
   await pool.query(
     `INSERT INTO finance.accounts (user_id, account_name, account_type) VALUES
@@ -45,21 +45,39 @@ async function seedDefaults(userId) {
        ($1, 'เงินโอน', 'bank'),
        ($1, 'ทรูวอเลต', 'e-wallet'),
        ($1, 'บัตรเครดิต', 'credit'),
-       ($1, 'อื่นๆ', 'other')`,
+       ($1, 'อื่นๆ', 'other'),
+       ($1, 'กรุงเทพ', 'bank'),
+       ($1, 'กสิกรไทย', 'bank'),
+       ($1, 'ออมสิน', 'bank'),
+       ($1, 'กรุงไทย', 'bank'),
+       ($1, 'กรุงศรี', 'bank'),
+       ($1, 'ธกส', 'bank')`,
     [userId]
   );
   await pool.query(
     `INSERT INTO finance.categories (user_id, name, type) VALUES
        ($1, 'เงินเดือน', 'income'),
-       ($1, 'รายได้เสริม', 'income'),
-       ($1, 'อาหาร', 'expense'),
-       ($1, 'เดินทาง', 'expense'),
-       ($1, 'ที่พัก', 'expense'),
-       ($1, 'ช้อปปิ้ง', 'expense'),
-       ($1, 'บันเทิง', 'expense'),
-       ($1, 'สุขภาพ', 'expense'),
-       ($1, 'ค่าโทรศัพท์/อินเทอร์เน็ต', 'expense'),
-       ($1, 'อื่นๆ', 'expense')`,
+       ($1, 'รายได้ค่าคอม', 'income'),
+       ($1, 'อาหาร(ซื้อ)', 'expense'),
+       ($1, 'อาหาร(วัตถุดิบ)', 'expense'),
+       ($1, 'ของหวาน(น้ำหวาน)', 'expense'),
+       ($1, 'ค่าเดินทาง(น้ำมัน)', 'expense'),
+       ($1, 'ค่าเดินทาง(ชาร์จไฟ)', 'expense'),
+       ($1, 'ค่าเทอม', 'expense'),
+       ($1, 'ค่าเรียนพิเศษ', 'expense'),
+       ($1, 'ค่าไฟ', 'expense'),
+       ($1, 'ค่าน้ำ', 'expense'),
+       ($1, 'ท่องเที่ยว', 'expense'),
+       ($1, 'หวย', 'expense'),
+       ($1, 'สลาก', 'expense'),
+       ($1, 'เงินฝาก', 'expense'),
+       ($1, 'หุ้น', 'expense'),
+       ($1, 'ประกัน', 'expense'),
+       ($1, 'ลงทุนค่าเงิน', 'expense'),
+       ($1, 'ทองคำ', 'expense'),
+       ($1, 'หนังสือ', 'expense'),
+       ($1, 'อุปกรณ์ไอที', 'expense'),
+       ($1, 'ของขวัญ', 'expense')`,
     [userId]
   );
 }
