@@ -6,6 +6,19 @@ function baht(n) {
   return Math.round(Number(n || 0)).toLocaleString('th-TH');
 }
 
+function buildScoreGaugeSvg(score) {
+  const r = 52;
+  const circumference = 2 * Math.PI * r;
+  const dash = circumference * (Math.max(0, Math.min(100, score)) / 100);
+  return `<svg viewBox="0 0 132 132" width="132" height="132" role="img" aria-label="คะแนนสุขภาพทางการเงิน ${score} จาก 100">
+    <circle cx="66" cy="66" r="${r}" fill="none" stroke="var(--line)" stroke-width="13"></circle>
+    <circle cx="66" cy="66" r="${r}" fill="none" stroke="var(--accent)" stroke-width="13" stroke-linecap="round"
+      stroke-dasharray="${dash.toFixed(1)} ${circumference.toFixed(1)}" transform="rotate(-90 66 66)"></circle>
+    <text x="66" y="63" text-anchor="middle" font-size="28" font-weight="800" fill="var(--ink)">${score}</text>
+    <text x="66" y="82" text-anchor="middle" font-size="12" fill="var(--muted)">/ 100</text>
+  </svg>`;
+}
+
 async function main() {
   const root = document.getElementById('report-root');
   const token = new URLSearchParams(window.location.search).get('token');
@@ -34,8 +47,10 @@ async function main() {
 
     <div class="card">
       <h3>คะแนนสุขภาพทางการเงิน</h3>
-      <div class="stat income">${score.overall} / 100</div>
-      <p class="sub">${score.overall >= 70 ? 'ระดับ: ดี' : score.overall >= 40 ? 'ระดับ: ปานกลาง' : 'ระดับ: ควรปรับปรุง'}</p>
+      <div class="gauge-wrap">
+        ${buildScoreGaugeSvg(score.overall)}
+        <p class="sub">${score.overall >= 70 ? 'ระดับ: ดี' : score.overall >= 40 ? 'ระดับ: ปานกลาง' : 'ระดับ: ควรปรับปรุง'}</p>
+      </div>
     </div>
 
     <div class="card">

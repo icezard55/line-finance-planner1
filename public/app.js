@@ -126,7 +126,7 @@ let categoriesCache = null;
 let accountsCache = null;
 let activeTab = 'dashboard';
 
-const KNOWN_TABS = ['dashboard', 'profile', 'analysis', ...MODULES.map((m) => m.key)];
+const KNOWN_TABS = ['dashboard', 'profile', 'analysis', 'investment', 'education', ...MODULES.map((m) => m.key)];
 
 function readRequestedTab() {
   const requested = new URLSearchParams(window.location.search).get('tab');
@@ -174,6 +174,8 @@ function renderTabs() {
   const entries = [
     { key: 'dashboard', label: 'แดชบอร์ด' },
     { key: 'analysis', label: 'วิเคราะห์' },
+    { key: 'education', label: 'การศึกษาบุตร' },
+    { key: 'investment', label: 'การลงทุน' },
     { key: 'profile', label: 'โปรไฟล์' },
     ...MODULES.map((m) => ({ key: m.key, label: m.label })),
   ];
@@ -194,8 +196,16 @@ function renderActiveTab() {
   if (activeTab === 'dashboard') return renderDashboard();
   if (activeTab === 'analysis') return renderAnalysis();
   if (activeTab === 'profile') return renderProfile();
+  if (activeTab === 'investment') return renderInvestmentCalculator();
+  if (activeTab === 'education') return renderEducationPlan();
   const mod = MODULES.find((m) => m.key === activeTab);
   if (mod) return renderModule(mod);
+}
+
+function goToTab(key) {
+  activeTab = key;
+  renderTabs();
+  renderActiveTab();
 }
 
 async function getCategories() {
@@ -250,10 +260,13 @@ async function renderDashboard() {
     .slice(0, 5);
 
   content.innerHTML = `
+    <nav class="nav-tiles">${buildNavTiles()}</nav>
     <div class="card">
       <h3>คะแนนสุขภาพทางการเงิน</h3>
-      <div class="stat income">${score.overall} / 100</div>
-      <p class="sub">${score.overall >= 70 ? 'ระดับ: ดี' : score.overall >= 40 ? 'ระดับ: ปานกลาง' : 'ระดับ: ควรปรับปรุง'}</p>
+      <div class="gauge-wrap">
+        ${buildScoreGaugeSvg(score.overall)}
+        <p class="sub">${score.overall >= 70 ? 'ระดับ: ดี' : score.overall >= 40 ? 'ระดับ: ปานกลาง' : 'ระดับ: ควรปรับปรุง'}</p>
+      </div>
       ${score.categories
         .map(
           (c) => `
@@ -414,6 +427,52 @@ function buildMonthlyChartSvg(months, maxVal) {
   </svg>`;
 }
 
+function buildScoreGaugeSvg(score) {
+  const r = 52;
+  const circumference = 2 * Math.PI * r;
+  const dash = circumference * (Math.max(0, Math.min(100, score)) / 100);
+  return `<svg viewBox="0 0 132 132" width="132" height="132" role="img" aria-label="คะแนนสุขภาพทางการเงิน ${score} จาก 100">
+    <circle cx="66" cy="66" r="${r}" fill="none" stroke="var(--line)" stroke-width="13"></circle>
+    <circle cx="66" cy="66" r="${r}" fill="none" stroke="var(--accent)" stroke-width="13" stroke-linecap="round"
+      stroke-dasharray="${dash.toFixed(1)} ${circumference.toFixed(1)}" transform="rotate(-90 66 66)"></circle>
+    <text x="66" y="63" text-anchor="middle" font-size="28" font-weight="800" fill="var(--ink)">${score}</text>
+    <text x="66" y="82" text-anchor="middle" font-size="12" fill="var(--muted)">/ 100</text>
+  </svg>`;
+}
+
+const NAV_TILES = [
+  {
+    key: 'analysis', label: 'ภาพรวมการเงิน',
+    icon: '<rect x="4" y="12" width="4" height="8" rx="1"></rect><rect x="10" y="7" width="4" height="13" rx="1"></rect><rect x="16" y="3" width="4" height="17" rx="1"></rect>',
+  },
+  {
+    key: 'insurance-policies', label: 'ความคุ้มครอง',
+    icon: '<path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>',
+  },
+  {
+    key: 'education', label: 'การศึกษาบุตร',
+    icon: '<path d="M12 4L2 9l10 5 10-5-10-5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path><path d="M6 11.5v4c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-4" fill="none" stroke="currentColor" stroke-width="2"></path>',
+  },
+  {
+    key: 'goals', label: 'เป้าหมาย/เกษียณ',
+    icon: '<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"></circle><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"></circle><circle cx="12" cy="12" r="1.2" fill="currentColor"></circle>',
+  },
+  {
+    key: 'investment', label: 'การลงทุน',
+    icon: '<path d="M3 17l6-6 4 4 8-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M15 6h6v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>',
+  },
+];
+
+function buildNavTiles() {
+  return NAV_TILES.map(
+    (t) => `
+    <button class="nav-tile" onclick="goToTab('${t.key}')" type="button">
+      <svg viewBox="0 0 24 24" width="26" height="26">${t.icon}</svg>
+      <span>${t.label}</span>
+    </button>`
+  ).join('');
+}
+
 async function renderProfile() {
   const content = document.getElementById('content');
   content.innerHTML = '<p class="empty">กำลังโหลด...</p>';
@@ -444,6 +503,126 @@ async function renderProfile() {
   };
 }
 
+function computeInvestmentProjection({ initial, monthly, annualRatePct, years }) {
+  const r = annualRatePct / 100 / 12;
+  const results = [];
+  for (const y of [5, 10, 20]) {
+    if (y > years) continue;
+    const n = y * 12;
+    const fv = r === 0 ? initial + monthly * n : initial * Math.pow(1 + r, n) + monthly * ((Math.pow(1 + r, n) - 1) / r);
+    results.push({ years: y, value: fv });
+  }
+  // also always show the requested horizon itself if it isn't one of the milestones
+  if (![5, 10, 20].includes(years)) {
+    const n = years * 12;
+    const fv = r === 0 ? initial + monthly * n : initial * Math.pow(1 + r, n) + monthly * ((Math.pow(1 + r, n) - 1) / r);
+    results.push({ years, value: fv });
+  }
+  return results.sort((a, b) => a.years - b.years);
+}
+
+function renderInvestmentCalculator() {
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <form class="entry-form" id="invest-form">
+      <div class="field"><label>เงินลงทุนเริ่มต้น</label><input type="number" name="initial" value="0" required /></div>
+      <div class="field"><label>ลงทุนเพิ่มต่อเดือน</label><input type="number" name="monthly" value="0" required /></div>
+      <div class="field"><label>ผลตอบแทนคาดหวังต่อปี (%)</label><input type="number" step="0.1" name="annualRatePct" value="5" required /></div>
+      <div class="field"><label>ระยะเวลาลงทุน (ปี)</label><input type="number" name="years" value="20" required /></div>
+      <button class="primary" type="submit">คำนวณ</button>
+    </form>
+    <div id="invest-result"></div>
+    <p class="sub" style="text-align:center;">เป็นการประมาณการเท่านั้น ไม่ใช่การรับประกันผลตอบแทน</p>
+  `;
+
+  const form = document.getElementById('invest-form');
+  const runCalc = () => {
+    const data = Object.fromEntries(new FormData(form).entries());
+    const results = computeInvestmentProjection({
+      initial: Number(data.initial) || 0,
+      monthly: Number(data.monthly) || 0,
+      annualRatePct: Number(data.annualRatePct) || 0,
+      years: Number(data.years) || 0,
+    });
+    document.getElementById('invest-result').innerHTML = `
+      <div class="section-title">มูลค่าที่คาดว่าจะได้รับ</div>
+      <div class="card">
+        ${results
+          .map(
+            (r) => `<div class="list-item"><span>${r.years} ปี</span><span class="meta">${Math.round(r.value).toLocaleString('th-TH')} บาท</span></div>`
+          )
+          .join('')}
+      </div>
+    `;
+  };
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    runCalc();
+  };
+  runCalc();
+}
+
+async function renderEducationPlan() {
+  const content = document.getElementById('content');
+  content.innerHTML = '<p class="empty">กำลังโหลด...</p>';
+
+  const [members, goals] = await Promise.all([authFetch('/family-members'), authFetch('/goals')]);
+  const goalByMember = Object.fromEntries(goals.filter((g) => g.family_member_id).map((g) => [g.family_member_id, g]));
+  const children = members.filter((m) => (m.relationship || '').includes('บุตร'));
+
+  content.innerHTML = `
+    <div class="section-title">แผนการศึกษาบุตร</div>
+    ${
+      children.length
+        ? children
+            .map((child) => {
+              const goal = goalByMember[child.id];
+              if (goal) {
+                const pct = Math.min(100, (Number(goal.current_amount || 0) / Math.max(1, Number(goal.target_amount || 1))) * 100);
+                return `
+              <div class="card">
+                <h3>${escapeHtml(child.name)}</h3>
+                <div class="cat-row">
+                  <div class="cat-row-top"><span>${escapeHtml(goal.goal_name)}</span><span>${Number(goal.current_amount).toLocaleString('th-TH')} / ${Number(goal.target_amount).toLocaleString('th-TH')}</span></div>
+                  <div class="cat-bar"><div class="cat-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
+                </div>
+                ${goal.target_date ? `<p class="sub">เป้าหมายภายใน ${goal.target_date.slice(0, 10)}</p>` : ''}
+              </div>`;
+              }
+              return `
+              <div class="card">
+                <h3>${escapeHtml(child.name)}</h3>
+                <p class="sub" style="margin-bottom:10px;">ยังไม่ได้ตั้งเป้าทุนการศึกษา</p>
+                <form class="entry-form education-goal-form" data-member-id="${child.id}" style="margin:0;">
+                  <div class="field"><label>ยอดเป้าหมาย</label><input type="number" name="target_amount" required /></div>
+                  <div class="field"><label>สะสมแล้ว</label><input type="number" name="current_amount" value="0" /></div>
+                  <div class="field"><label>ภายในวันที่</label><input type="date" name="target_date" /></div>
+                  <button class="primary" type="submit">ตั้งเป้าการศึกษา</button>
+                </form>
+              </div>`;
+            })
+            .join('')
+        : '<div class="card"><p class="empty">ยังไม่มีข้อมูลบุตรในแท็บ "ครอบครัว" — เพิ่มสมาชิกที่ระบุความสัมพันธ์เป็น "บุตร" ก่อน</p></div>'
+    }
+  `;
+
+  document.querySelectorAll('.education-goal-form').forEach((form) => {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(form).entries());
+      for (const k of Object.keys(data)) {
+        if (data[k] === '') delete data[k];
+      }
+      data.family_member_id = form.dataset.memberId;
+      data.goal_type = 'การศึกษา';
+      data.goal_name = 'ทุนการศึกษา';
+      await authFetch('/goals', { method: 'POST', body: JSON.stringify(data) });
+      renderEducationPlan();
+    };
+  });
+}
+
 async function renderModule(mod, opts = {}) {
   const { containerId = 'content', clientId } = opts;
   const content = document.getElementById(containerId);
@@ -461,6 +640,29 @@ async function renderModule(mod, opts = {}) {
   }
 
   const rows = await authFetch('/' + mod.path + (clientId ? '?client_id=' + clientId : ''));
+
+  let coverageGapHtml = '';
+  if (mod.key === 'insurance-policies' && !clientId) {
+    const { score } = await authFetch('/score');
+    const s = score.summary;
+    const lifePct = s.recommendedLifeCoverage > 0 ? Math.min(100, (s.lifeCoverage / s.recommendedLifeCoverage) * 100) : 100;
+    const healthPct = s.recommendedHealthCoverage > 0 ? Math.min(100, (s.healthCoverage / s.recommendedHealthCoverage) * 100) : 100;
+    coverageGapHtml = `
+      <div class="card">
+        <h3>ช่องว่างความคุ้มครอง</h3>
+        <div class="cat-row">
+          <div class="cat-row-top"><span>ชีวิต — มี ${s.lifeCoverage.toLocaleString('th-TH')} / ควรมี ${s.recommendedLifeCoverage.toLocaleString('th-TH')}</span></div>
+          <div class="cat-bar"><div class="cat-bar-fill ${lifePct < 40 ? 'status-over' : lifePct < 70 ? 'status-warn' : ''}" style="width:${lifePct.toFixed(1)}%"></div></div>
+          <p class="sub">${s.lifeCoverageGap > 0 ? 'ยังขาด ' + s.lifeCoverageGap.toLocaleString('th-TH') + ' บาท' : 'ครบตามเกณฑ์แนะนำแล้ว'}</p>
+        </div>
+        <div class="cat-row">
+          <div class="cat-row-top"><span>สุขภาพ — มี ${s.healthCoverage.toLocaleString('th-TH')} / ควรมี ${s.recommendedHealthCoverage.toLocaleString('th-TH')}</span></div>
+          <div class="cat-bar"><div class="cat-bar-fill ${healthPct < 40 ? 'status-over' : healthPct < 70 ? 'status-warn' : ''}" style="width:${healthPct.toFixed(1)}%"></div></div>
+          <p class="sub">${s.healthCoverageGap > 0 ? 'ยังขาด ' + s.healthCoverageGap.toLocaleString('th-TH') + ' บาท' : 'ครบตามเกณฑ์แนะนำแล้ว'}</p>
+        </div>
+      </div>
+    `;
+  }
 
   const formFields = mod.fields
     .map((f) => {
@@ -483,6 +685,7 @@ async function renderModule(mod, opts = {}) {
   const listId = containerId + '-list';
 
   content.innerHTML = `
+    ${coverageGapHtml}
     <form class="entry-form" id="${formId}">
       ${formFields}
       <button class="primary" type="submit">เพิ่ม</button>

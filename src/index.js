@@ -46,7 +46,7 @@ const modules = [
   { path: 'assets', table: 'assets', columns: ['asset_name', 'asset_type', 'estimated_value', 'acquired_date'], supportsClient: true },
   { path: 'liabilities', table: 'liabilities', columns: ['liability_name', 'liability_type', 'remaining_balance', 'interest_rate', 'due_day', 'min_payment'], supportsClient: true },
   { path: 'family-members', table: 'family_members', columns: ['name', 'relationship', 'birth_date', 'is_dependent'] },
-  { path: 'goals', table: 'goals', columns: ['goal_name', 'goal_type', 'target_amount', 'current_amount', 'target_date', 'priority'], supportsClient: true },
+  { path: 'goals', table: 'goals', columns: ['goal_name', 'goal_type', 'target_amount', 'current_amount', 'target_date', 'priority', 'family_member_id'], supportsClient: true },
   { path: 'reminders', table: 'reminders', columns: ['source_type', 'source_id', 'title', 'due_date', 'notify_days_before', 'repeat_cycle', 'status'] },
   { path: 'employee-benefits', table: 'employee_benefits', columns: ['benefit_type', 'employer_contribution', 'employee_contribution', 'accumulated_amount', 'start_date'] },
   { path: 'recurring-transactions', table: 'recurring_transactions', columns: ['type', 'amount', 'category_id', 'note', 'frequency', 'day_of_month', 'next_run_date', 'active'] },

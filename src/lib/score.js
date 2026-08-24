@@ -77,6 +77,9 @@ function computeScore({ transactions = [], assets = [], liabilities = [], insura
 
   const overall = Math.round(categories.reduce((s, c) => s + c.score, 0) / categories.length);
 
+  const recommendedLifeCoverage = avgMonthlyIncome * 12 * LIFE_COVERAGE_INCOME_MULTIPLE;
+  const recommendedHealthCoverage = HEALTH_COVERAGE_BENCHMARK;
+
   return {
     overall,
     categories,
@@ -88,6 +91,10 @@ function computeScore({ transactions = [], assets = [], liabilities = [], insura
       netWorth: totalAssets - totalLiabilities,
       lifeCoverage,
       healthCoverage,
+      recommendedLifeCoverage,
+      recommendedHealthCoverage,
+      lifeCoverageGap: Math.max(0, recommendedLifeCoverage - lifeCoverage),
+      healthCoverageGap: Math.max(0, recommendedHealthCoverage - healthCoverage),
     },
   };
 }
