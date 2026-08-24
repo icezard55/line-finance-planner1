@@ -2,6 +2,24 @@ const LIFF_ID = '2011118214-fbnXxp46';
 
 const MODULES = [
   {
+    key: 'clients', label: 'ลูกค้า', path: 'clients',
+    fields: [
+      { key: 'name', label: 'ชื่อ-นามสกุล', type: 'text', required: true },
+      { key: 'birth_date', label: 'วันเกิด', type: 'date', required: false },
+      { key: 'occupation', label: 'อาชีพ', type: 'text', required: false },
+      { key: 'marital_status', label: 'สถานภาพ', type: 'select', options: ['โสด', 'สมรส', 'หย่าร้าง'], required: false },
+      { key: 'num_children', label: 'จำนวนบุตร', type: 'number', required: false },
+      { key: 'phone', label: 'เบอร์โทร', type: 'text', required: false },
+      { key: 'line_contact', label: 'LINE ID', type: 'text', required: false },
+      { key: 'email', label: 'อีเมล', type: 'text', required: false },
+    ],
+    columns: [
+      { key: 'name', label: (r) => r.name },
+      { key: 'age', label: (r) => (r.birth_date ? calcAge(r.birth_date) + ' ปี' : '-') },
+      { key: 'occupation', label: (r) => r.occupation || '-' },
+    ],
+  },
+  {
     key: 'transactions', label: 'รายรับ-รายจ่าย', path: 'transactions',
     fields: [
       { key: 'type', label: 'ประเภท', type: 'select', options: ['expense', 'income'], required: true },
@@ -126,7 +144,7 @@ let categoriesCache = null;
 let accountsCache = null;
 let activeTab = 'dashboard';
 
-const KNOWN_TABS = ['dashboard', 'profile', 'analysis', ...MODULES.map((m) => m.key)];
+const KNOWN_TABS = ['dashboard', 'profile', 'analysis', 'clients', ...MODULES.map((m) => m.key)];
 
 function readRequestedTab() {
   const requested = new URLSearchParams(window.location.search).get('tab');
@@ -428,8 +446,9 @@ async function renderProfile() {
   };
 }
 
-async function renderModule(mod) {
-  const content = document.getElementById('content');
+async function renderModule(mod, opts = {}) {
+  const { containerId = 'content', clientId } = opts;
+  const content = document.getElementById(containerId);
   content.innerHTML = '<p class="empty">กำลังโหลด...</p>';
 
   let categoryOptions = '';
@@ -443,7 +462,7 @@ async function renderModule(mod) {
     accountOptions = accts.map((a) => `<option value="${a.id}">${escapeHtml(a.account_name)}</option>`).join('');
   }
 
-  const rows = await authFetch('/' + mod.path);
+  const rows = await authFetch('/' + mod.path + (clientId ? '?client_id=' + clientId : ''));
 
   const formFields = mod.fields
     .map((f) => {
@@ -462,27 +481,31 @@ async function renderModule(mod) {
     })
     .join('');
 
+  const formId = containerId + '-add-form';
+  const listId = containerId + '-list';
+
   content.innerHTML = `
-    <form class="entry-form" id="add-form">
+    <form class="entry-form" id="${formId}">
       ${formFields}
       <button class="primary" type="submit">เพิ่ม</button>
     </form>
     <div class="section-title">รายการทั้งหมด (${rows.length})</div>
-    <div class="card" id="list"></div>
+    <div class="card" id="${listId}"></div>
   `;
 
-  renderList(mod, rows);
+  renderList(mod, rows, { containerId, listId, clientId });
 
-  document.getElementById('add-form').onsubmit = async (e) => {
+  document.getElementById(formId).onsubmit = async (e) => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(e.target).entries());
     for (const k of Object.keys(data)) {
       if (data[k] === '') delete data[k];
     }
     Object.assign(data, mod.extraFields || {});
+    if (clientId) data.client_id = clientId;
     await authFetch('/' + mod.path, { method: 'POST', body: JSON.stringify(data) });
     invalidateLookupCache(mod.path);
-    renderModule(mod);
+    renderModule(mod, opts);
   };
 }
 
@@ -491,20 +514,23 @@ function invalidateLookupCache(path) {
   if (path === 'accounts') accountsCache = null;
 }
 
-function renderList(mod, rows) {
-  const list = document.getElementById('list');
+function renderList(mod, rows, opts = {}) {
+  const { containerId = 'content', listId = 'list', clientId } = opts;
+  const list = document.getElementById(listId);
   if (!rows.length) {
     list.innerHTML = '<p class="empty">ยังไม่มีข้อมูล</p>';
     return;
   }
   const cols = mod.columns || mod.fields.slice(0, 2).map((f) => ({ key: f.key, label: (r) => r[f.key] }));
-  const showBenefits = mod.key === 'insurance-policies';
+  const showBenefits = mod.key === 'insurance-policies' && !clientId;
+  const showOpen = mod.key === 'clients';
   list.innerHTML = rows
     .map(
       (r) => `
       <div class="list-item">
         <span>${cols.map((c) => escapeHtml(String(c.label(r) ?? ''))).join(' · ')}</span>
         <span class="item-actions">
+          ${showOpen ? `<button class="link-btn" data-open-id="${r.id}">เปิด</button>` : ''}
           ${showBenefits ? `<button class="link-btn" data-benefits-id="${r.id}">สิทธิ</button>` : ''}
           <button class="del" data-id="${r.id}">ลบ</button>
         </span>
@@ -516,9 +542,18 @@ function renderList(mod, rows) {
     btn.onclick = async () => {
       await authFetch('/' + mod.path + '/' + btn.dataset.id, { method: 'DELETE' });
       invalidateLookupCache(mod.path);
-      renderModule(mod);
+      renderModule(mod, { containerId, clientId });
     };
   });
+
+  if (showOpen) {
+    list.querySelectorAll('[data-open-id]').forEach((btn) => {
+      btn.onclick = () => {
+        const client = rows.find((r) => r.id === btn.dataset.openId);
+        renderClientWorkspace(client);
+      };
+    });
+  }
 
   if (showBenefits) {
     list.querySelectorAll('[data-benefits-id]').forEach((btn) => {
@@ -590,6 +625,139 @@ async function renderInsuranceBenefits(policy, parentMod) {
       renderInsuranceBenefits(policy, parentMod);
     };
   });
+}
+
+let clientSubTab = 'transactions';
+
+function calcAge(birthDate) {
+  const birth = new Date(birthDate);
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const beforeBirthday = now.getMonth() < birth.getMonth() || (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate());
+  if (beforeBirthday) age -= 1;
+  return age;
+}
+
+function renderClientWorkspace(client) {
+  clientSubTab = 'transactions';
+  renderClientWorkspaceShell(client);
+}
+
+function renderClientWorkspaceShell(client) {
+  const content = document.getElementById('content');
+  const age = client.birth_date ? calcAge(client.birth_date) + ' ปี' : '';
+
+  content.innerHTML = `
+    <button class="link-btn back-btn" id="back-to-clients">← กลับไปหน้าลูกค้า</button>
+    <div class="card">
+      <h3>${escapeHtml(client.name)}</h3>
+      <p class="sub">${[client.occupation, age].filter(Boolean).map(escapeHtml).join(' · ')}</p>
+    </div>
+    <nav class="tabs" id="client-subtabs" style="position:static;padding:0 0 4px;margin-bottom:14px;background:none;border:none;"></nav>
+    <div id="client-body"></div>
+  `;
+
+  document.getElementById('back-to-clients').onclick = () => {
+    activeTab = 'clients';
+    renderTabs();
+    renderActiveTab();
+  };
+
+  const subtabs = [
+    { key: 'transactions', label: 'รายรับ-รายจ่าย' },
+    { key: 'networth', label: 'สินทรัพย์-หนี้สิน' },
+    { key: 'insurance-policies', label: 'ความคุ้มครอง' },
+    { key: 'goals', label: 'เป้าหมาย' },
+    { key: 'score', label: 'คะแนน' },
+  ];
+  const bar = document.getElementById('client-subtabs');
+  for (const t of subtabs) {
+    const btn = document.createElement('button');
+    btn.textContent = t.label;
+    btn.className = t.key === clientSubTab ? 'active' : '';
+    btn.onclick = () => {
+      clientSubTab = t.key;
+      renderClientWorkspaceShell(client);
+    };
+    bar.appendChild(btn);
+  }
+
+  renderClientSubBody(client);
+}
+
+function renderClientSubBody(client) {
+  if (clientSubTab === 'transactions') {
+    return renderModule(MODULES.find((m) => m.key === 'transactions'), { containerId: 'client-body', clientId: client.id });
+  }
+  if (clientSubTab === 'insurance-policies') {
+    return renderModule(MODULES.find((m) => m.key === 'insurance-policies'), { containerId: 'client-body', clientId: client.id });
+  }
+  if (clientSubTab === 'goals') {
+    return renderModule(MODULES.find((m) => m.key === 'goals'), { containerId: 'client-body', clientId: client.id });
+  }
+  if (clientSubTab === 'networth') {
+    return renderClientNetWorth(client);
+  }
+  if (clientSubTab === 'score') {
+    return renderClientScore(client);
+  }
+}
+
+async function renderClientNetWorth(client) {
+  const body = document.getElementById('client-body');
+  body.innerHTML = `
+    <div class="section-title">สินทรัพย์</div>
+    <div id="client-assets"></div>
+    <div class="section-title">หนี้สิน</div>
+    <div id="client-liabilities"></div>
+  `;
+  await renderModule(MODULES.find((m) => m.key === 'assets'), { containerId: 'client-assets', clientId: client.id });
+  await renderModule(MODULES.find((m) => m.key === 'liabilities'), { containerId: 'client-liabilities', clientId: client.id });
+}
+
+async function renderClientScore(client) {
+  const body = document.getElementById('client-body');
+  body.innerHTML = '<p class="empty">กำลังโหลด...</p>';
+
+  const report = await authFetch(`/clients/${client.id}/report`);
+  const reportUrl = window.location.origin + '/report.html?token=' + client.share_token;
+
+  body.innerHTML = `
+    <div class="card">
+      <h3>คะแนนสุขภาพทางการเงิน</h3>
+      <div class="stat income">${report.score.overall} / 100</div>
+    </div>
+    <div class="card">
+      ${report.score.categories
+        .map(
+          (c) => `
+        <div class="cat-row">
+          <div class="cat-row-top"><span>${escapeHtml(c.label)}</span><span>${c.score}%</span></div>
+          <div class="cat-bar"><div class="cat-bar-fill ${c.score < 40 ? 'status-over' : c.score < 70 ? 'status-warn' : ''}" style="width:${c.score}%"></div></div>
+        </div>`
+        )
+        .join('')}
+    </div>
+    <div class="section-title">สรุปตัวเลข</div>
+    <div class="card">
+      <div class="list-item"><span>รายรับเฉลี่ย/เดือน</span><span class="meta">${Math.round(report.score.summary.avgMonthlyIncome).toLocaleString('th-TH')}</span></div>
+      <div class="list-item"><span>รายจ่ายเฉลี่ย/เดือน</span><span class="meta">${Math.round(report.score.summary.avgMonthlyExpense).toLocaleString('th-TH')}</span></div>
+      <div class="list-item"><span>สินทรัพย์รวม</span><span class="meta">${report.score.summary.totalAssets.toLocaleString('th-TH')}</span></div>
+      <div class="list-item"><span>หนี้สินรวม</span><span class="meta">${report.score.summary.totalLiabilities.toLocaleString('th-TH')}</span></div>
+      <div class="list-item"><span>มูลค่าสุทธิ</span><span class="meta">${report.score.summary.netWorth.toLocaleString('th-TH')}</span></div>
+    </div>
+    <button class="primary" id="copy-report-link" type="button">คัดลอกลิงก์รายงาน</button>
+  `;
+
+  document.getElementById('copy-report-link').onclick = async () => {
+    const btn = document.getElementById('copy-report-link');
+    try {
+      await navigator.clipboard.writeText(reportUrl);
+      btn.textContent = 'คัดลอกแล้ว ✓';
+    } catch {
+      window.prompt('คัดลอกลิงก์นี้:', reportUrl);
+    }
+  };
 }
 
 function escapeHtml(s) {
