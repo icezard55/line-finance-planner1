@@ -13,8 +13,20 @@ authedRouter.get('/:id/report', async (req, res, next) => {
     );
     if (!client.rows[0]) return res.status(404).json({ error: 'not found' });
 
-    const report = await buildReport(req.params.id);
+    const report = await buildReport({ clientId: req.params.id });
     res.json({ client: client.rows[0], ...report });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// The caller's own personal financial health score (client_id IS NULL data).
+const personalRouter = express.Router();
+
+personalRouter.get('/', async (req, res, next) => {
+  try {
+    const report = await buildReport({ userId: req.lineUserId });
+    res.json(report);
   } catch (err) {
     next(err);
   }
@@ -28,7 +40,7 @@ publicRouter.get('/:token', async (req, res, next) => {
     const client = await pool.query('SELECT * FROM finance.clients WHERE share_token = $1', [req.params.token]);
     if (!client.rows[0]) return res.status(404).json({ error: 'not found' });
 
-    const report = await buildReport(client.rows[0].id);
+    const report = await buildReport({ clientId: client.rows[0].id });
     res.json({
       client: { name: client.rows[0].name, occupation: client.rows[0].occupation, plan_started_at: client.rows[0].plan_started_at },
       ...report,
@@ -38,13 +50,18 @@ publicRouter.get('/:token', async (req, res, next) => {
   }
 });
 
-async function buildReport(clientId) {
+// clientId set -> that client's data. clientId omitted -> the caller's own
+// personal data (client_id IS NULL), same convention as crudRouter's supportsClient.
+async function buildReport({ userId, clientId }) {
+  const where = clientId ? 'client_id = $1' : 'user_id = $1 AND client_id IS NULL';
+  const param = clientId || userId;
+
   const [transactions, assets, liabilities, insurancePolicies, goals] = await Promise.all([
-    pool.query('SELECT * FROM finance.transactions WHERE client_id = $1', [clientId]),
-    pool.query('SELECT * FROM finance.assets WHERE client_id = $1', [clientId]),
-    pool.query('SELECT * FROM finance.liabilities WHERE client_id = $1', [clientId]),
-    pool.query('SELECT * FROM finance.insurance_policies WHERE client_id = $1', [clientId]),
-    pool.query('SELECT * FROM finance.goals WHERE client_id = $1', [clientId]),
+    pool.query(`SELECT * FROM finance.transactions WHERE ${where}`, [param]),
+    pool.query(`SELECT * FROM finance.assets WHERE ${where}`, [param]),
+    pool.query(`SELECT * FROM finance.liabilities WHERE ${where}`, [param]),
+    pool.query(`SELECT * FROM finance.insurance_policies WHERE ${where}`, [param]),
+    pool.query(`SELECT * FROM finance.goals WHERE ${where}`, [param]),
   ]);
 
   const score = computeScore({
@@ -64,4 +81,4 @@ async function buildReport(clientId) {
   };
 }
 
-module.exports = { authedRouter, publicRouter };
+module.exports = { authedRouter, personalRouter, publicRouter };

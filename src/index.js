@@ -57,6 +57,7 @@ for (const { path, table, columns, supportsClient } of modules) {
 }
 
 api.use('/clients', clientReport.authedRouter);
+api.use('/score', clientReport.personalRouter);
 
 app.use('/api', api);
 

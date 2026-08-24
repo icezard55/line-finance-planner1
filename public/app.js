@@ -2,24 +2,6 @@ const LIFF_ID = '2011118214-fbnXxp46';
 
 const MODULES = [
   {
-    key: 'clients', label: 'ลูกค้า', path: 'clients',
-    fields: [
-      { key: 'name', label: 'ชื่อ-นามสกุล', type: 'text', required: true },
-      { key: 'birth_date', label: 'วันเกิด', type: 'date', required: false },
-      { key: 'occupation', label: 'อาชีพ', type: 'text', required: false },
-      { key: 'marital_status', label: 'สถานภาพ', type: 'select', options: ['โสด', 'สมรส', 'หย่าร้าง'], required: false },
-      { key: 'num_children', label: 'จำนวนบุตร', type: 'number', required: false },
-      { key: 'phone', label: 'เบอร์โทร', type: 'text', required: false },
-      { key: 'line_contact', label: 'LINE ID', type: 'text', required: false },
-      { key: 'email', label: 'อีเมล', type: 'text', required: false },
-    ],
-    columns: [
-      { key: 'name', label: (r) => r.name },
-      { key: 'age', label: (r) => (r.birth_date ? calcAge(r.birth_date) + ' ปี' : '-') },
-      { key: 'occupation', label: (r) => r.occupation || '-' },
-    ],
-  },
-  {
     key: 'transactions', label: 'รายรับ-รายจ่าย', path: 'transactions',
     fields: [
       { key: 'type', label: 'ประเภท', type: 'select', options: ['expense', 'income'], required: true },
@@ -144,7 +126,7 @@ let categoriesCache = null;
 let accountsCache = null;
 let activeTab = 'dashboard';
 
-const KNOWN_TABS = ['dashboard', 'profile', 'analysis', 'clients', ...MODULES.map((m) => m.key)];
+const KNOWN_TABS = ['dashboard', 'profile', 'analysis', ...MODULES.map((m) => m.key)];
 
 function readRequestedTab() {
   const requested = new URLSearchParams(window.location.search).get('tab');
@@ -230,13 +212,15 @@ async function renderDashboard() {
   const content = document.getElementById('content');
   content.innerHTML = '<p class="empty">กำลังโหลด...</p>';
 
-  const [transactions, reminders, budgets, cats] = await Promise.all([
+  const [transactions, reminders, budgets, cats, scoreReport] = await Promise.all([
     authFetch('/transactions'),
     authFetch('/reminders'),
     authFetch('/budgets'),
     getCategories(),
+    authFetch('/score'),
   ]);
   const catName = Object.fromEntries(cats.map((c) => [c.id, c.name]));
+  const score = scoreReport.score;
 
   const now = new Date();
   const thisMonth = transactions.filter((t) => {
@@ -266,6 +250,20 @@ async function renderDashboard() {
     .slice(0, 5);
 
   content.innerHTML = `
+    <div class="card">
+      <h3>คะแนนสุขภาพทางการเงิน</h3>
+      <div class="stat income">${score.overall} / 100</div>
+      <p class="sub">${score.overall >= 70 ? 'ระดับ: ดี' : score.overall >= 40 ? 'ระดับ: ปานกลาง' : 'ระดับ: ควรปรับปรุง'}</p>
+      ${score.categories
+        .map(
+          (c) => `
+        <div class="cat-row">
+          <div class="cat-row-top"><span>${escapeHtml(c.label)}</span><span>${c.score}%</span></div>
+          <div class="cat-bar"><div class="cat-bar-fill ${c.score < 40 ? 'status-over' : c.score < 70 ? 'status-warn' : ''}" style="width:${c.score}%"></div></div>
+        </div>`
+        )
+        .join('')}
+    </div>
     <div class="card">
       <h3>เดือนนี้</h3>
       <div class="row">
@@ -523,14 +521,12 @@ function renderList(mod, rows, opts = {}) {
   }
   const cols = mod.columns || mod.fields.slice(0, 2).map((f) => ({ key: f.key, label: (r) => r[f.key] }));
   const showBenefits = mod.key === 'insurance-policies' && !clientId;
-  const showOpen = mod.key === 'clients';
   list.innerHTML = rows
     .map(
       (r) => `
       <div class="list-item">
         <span>${cols.map((c) => escapeHtml(String(c.label(r) ?? ''))).join(' · ')}</span>
         <span class="item-actions">
-          ${showOpen ? `<button class="link-btn" data-open-id="${r.id}">เปิด</button>` : ''}
           ${showBenefits ? `<button class="link-btn" data-benefits-id="${r.id}">สิทธิ</button>` : ''}
           <button class="del" data-id="${r.id}">ลบ</button>
         </span>
@@ -545,15 +541,6 @@ function renderList(mod, rows, opts = {}) {
       renderModule(mod, { containerId, clientId });
     };
   });
-
-  if (showOpen) {
-    list.querySelectorAll('[data-open-id]').forEach((btn) => {
-      btn.onclick = () => {
-        const client = rows.find((r) => r.id === btn.dataset.openId);
-        renderClientWorkspace(client);
-      };
-    });
-  }
 
   if (showBenefits) {
     list.querySelectorAll('[data-benefits-id]').forEach((btn) => {
@@ -627,138 +614,6 @@ async function renderInsuranceBenefits(policy, parentMod) {
   });
 }
 
-let clientSubTab = 'transactions';
-
-function calcAge(birthDate) {
-  const birth = new Date(birthDate);
-  const now = new Date();
-  let age = now.getFullYear() - birth.getFullYear();
-  const beforeBirthday = now.getMonth() < birth.getMonth() || (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate());
-  if (beforeBirthday) age -= 1;
-  return age;
-}
-
-function renderClientWorkspace(client) {
-  clientSubTab = 'transactions';
-  renderClientWorkspaceShell(client);
-}
-
-function renderClientWorkspaceShell(client) {
-  const content = document.getElementById('content');
-  const age = client.birth_date ? calcAge(client.birth_date) + ' ปี' : '';
-
-  content.innerHTML = `
-    <button class="link-btn back-btn" id="back-to-clients">← กลับไปหน้าลูกค้า</button>
-    <div class="card">
-      <h3>${escapeHtml(client.name)}</h3>
-      <p class="sub">${[client.occupation, age].filter(Boolean).map(escapeHtml).join(' · ')}</p>
-    </div>
-    <nav class="tabs" id="client-subtabs" style="position:static;padding:0 0 4px;margin-bottom:14px;background:none;border:none;"></nav>
-    <div id="client-body"></div>
-  `;
-
-  document.getElementById('back-to-clients').onclick = () => {
-    activeTab = 'clients';
-    renderTabs();
-    renderActiveTab();
-  };
-
-  const subtabs = [
-    { key: 'transactions', label: 'รายรับ-รายจ่าย' },
-    { key: 'networth', label: 'สินทรัพย์-หนี้สิน' },
-    { key: 'insurance-policies', label: 'ความคุ้มครอง' },
-    { key: 'goals', label: 'เป้าหมาย' },
-    { key: 'score', label: 'คะแนน' },
-  ];
-  const bar = document.getElementById('client-subtabs');
-  for (const t of subtabs) {
-    const btn = document.createElement('button');
-    btn.textContent = t.label;
-    btn.className = t.key === clientSubTab ? 'active' : '';
-    btn.onclick = () => {
-      clientSubTab = t.key;
-      renderClientWorkspaceShell(client);
-    };
-    bar.appendChild(btn);
-  }
-
-  renderClientSubBody(client);
-}
-
-function renderClientSubBody(client) {
-  if (clientSubTab === 'transactions') {
-    return renderModule(MODULES.find((m) => m.key === 'transactions'), { containerId: 'client-body', clientId: client.id });
-  }
-  if (clientSubTab === 'insurance-policies') {
-    return renderModule(MODULES.find((m) => m.key === 'insurance-policies'), { containerId: 'client-body', clientId: client.id });
-  }
-  if (clientSubTab === 'goals') {
-    return renderModule(MODULES.find((m) => m.key === 'goals'), { containerId: 'client-body', clientId: client.id });
-  }
-  if (clientSubTab === 'networth') {
-    return renderClientNetWorth(client);
-  }
-  if (clientSubTab === 'score') {
-    return renderClientScore(client);
-  }
-}
-
-async function renderClientNetWorth(client) {
-  const body = document.getElementById('client-body');
-  body.innerHTML = `
-    <div class="section-title">สินทรัพย์</div>
-    <div id="client-assets"></div>
-    <div class="section-title">หนี้สิน</div>
-    <div id="client-liabilities"></div>
-  `;
-  await renderModule(MODULES.find((m) => m.key === 'assets'), { containerId: 'client-assets', clientId: client.id });
-  await renderModule(MODULES.find((m) => m.key === 'liabilities'), { containerId: 'client-liabilities', clientId: client.id });
-}
-
-async function renderClientScore(client) {
-  const body = document.getElementById('client-body');
-  body.innerHTML = '<p class="empty">กำลังโหลด...</p>';
-
-  const report = await authFetch(`/clients/${client.id}/report`);
-  const reportUrl = window.location.origin + '/report.html?token=' + client.share_token;
-
-  body.innerHTML = `
-    <div class="card">
-      <h3>คะแนนสุขภาพทางการเงิน</h3>
-      <div class="stat income">${report.score.overall} / 100</div>
-    </div>
-    <div class="card">
-      ${report.score.categories
-        .map(
-          (c) => `
-        <div class="cat-row">
-          <div class="cat-row-top"><span>${escapeHtml(c.label)}</span><span>${c.score}%</span></div>
-          <div class="cat-bar"><div class="cat-bar-fill ${c.score < 40 ? 'status-over' : c.score < 70 ? 'status-warn' : ''}" style="width:${c.score}%"></div></div>
-        </div>`
-        )
-        .join('')}
-    </div>
-    <div class="section-title">สรุปตัวเลข</div>
-    <div class="card">
-      <div class="list-item"><span>รายรับเฉลี่ย/เดือน</span><span class="meta">${Math.round(report.score.summary.avgMonthlyIncome).toLocaleString('th-TH')}</span></div>
-      <div class="list-item"><span>รายจ่ายเฉลี่ย/เดือน</span><span class="meta">${Math.round(report.score.summary.avgMonthlyExpense).toLocaleString('th-TH')}</span></div>
-      <div class="list-item"><span>สินทรัพย์รวม</span><span class="meta">${report.score.summary.totalAssets.toLocaleString('th-TH')}</span></div>
-      <div class="list-item"><span>หนี้สินรวม</span><span class="meta">${report.score.summary.totalLiabilities.toLocaleString('th-TH')}</span></div>
-      <div class="list-item"><span>มูลค่าสุทธิ</span><span class="meta">${report.score.summary.netWorth.toLocaleString('th-TH')}</span></div>
-    </div>
-    <button class="primary" id="copy-report-link" type="button">คัดลอกลิงก์รายงาน</button>
-  `;
-
-  document.getElementById('copy-report-link').onclick = async () => {
-    const btn = document.getElementById('copy-report-link');
-    try {
-      await navigator.clipboard.writeText(reportUrl);
-      btn.textContent = 'คัดลอกแล้ว ✓';
-    } catch {
-      window.prompt('คัดลอกลิงก์นี้:', reportUrl);
-    }
-  };
-}
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
