@@ -360,17 +360,25 @@ async function renderAnalysis() {
   }
   const maxVal = Math.max(1, ...months.flatMap((m) => [m.income, m.expense]));
 
-  const thisMonthExpenses = transactions.filter((t) => {
+  const thisMonthTx = transactions.filter((t) => {
     const d = new Date(t.occurred_at);
-    return t.type === 'expense' && d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
   });
-  const byCategory = {};
-  for (const t of thisMonthExpenses) {
-    const key = t.category_id ? catName[t.category_id] || 'ไม่ระบุหมวด' : 'ไม่ระบุหมวด';
-    byCategory[key] = (byCategory[key] || 0) + Number(t.amount);
-  }
-  const categoryRows = Object.entries(byCategory).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+  const groupByCategory = (rows) => {
+    const byCategory = {};
+    for (const t of rows) {
+      const key = t.category_id ? catName[t.category_id] || 'ไม่ระบุหมวด' : 'ไม่ระบุหมวด';
+      byCategory[key] = (byCategory[key] || 0) + Number(t.amount);
+    }
+    return Object.entries(byCategory).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  };
+
+  const categoryRows = groupByCategory(thisMonthTx.filter((t) => t.type === 'expense'));
   const maxCat = Math.max(1, ...categoryRows.map(([, v]) => v));
+
+  const incomeCategoryRows = groupByCategory(thisMonthTx.filter((t) => t.type === 'income'));
+  const maxIncomeCat = Math.max(1, ...incomeCategoryRows.map(([, v]) => v));
 
   content.innerHTML = `
     <div class="card">
@@ -390,11 +398,27 @@ async function renderAnalysis() {
                 ([name, val]) => `
         <div class="cat-row">
           <div class="cat-row-top"><span>${escapeHtml(name)}</span><span>${val.toLocaleString('th-TH')}</span></div>
-          <div class="cat-bar"><div class="cat-bar-fill" style="width:${((val / maxCat) * 100).toFixed(1)}%"></div></div>
+          <div class="cat-bar"><div class="cat-bar-fill expense" style="width:${((val / maxCat) * 100).toFixed(1)}%"></div></div>
         </div>`
               )
               .join('')
           : '<p class="empty">ยังไม่มีรายจ่ายเดือนนี้</p>'
+      }
+    </div>
+    <div class="section-title">รายรับตามหมวด (เดือนนี้)</div>
+    <div class="card">
+      ${
+        incomeCategoryRows.length
+          ? incomeCategoryRows
+              .map(
+                ([name, val]) => `
+        <div class="cat-row">
+          <div class="cat-row-top"><span>${escapeHtml(name)}</span><span>${val.toLocaleString('th-TH')}</span></div>
+          <div class="cat-bar"><div class="cat-bar-fill income" style="width:${((val / maxIncomeCat) * 100).toFixed(1)}%"></div></div>
+        </div>`
+              )
+              .join('')
+          : '<p class="empty">ยังไม่มีรายรับเดือนนี้</p>'
       }
     </div>
   `;

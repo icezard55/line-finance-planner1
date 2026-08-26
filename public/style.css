@@ -370,6 +370,8 @@ select:focus-visible {
 
 .cat-bar-fill.status-warn { background: var(--warning); }
 .cat-bar-fill.status-over { background: var(--danger); }
+.cat-bar-fill.expense { background: var(--danger); }
+.cat-bar-fill.income { background: var(--accent); }
 
 .nav-tiles {
   display: grid;
