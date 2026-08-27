@@ -333,6 +333,7 @@ async function renderDashboard() {
 const THAI_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
 let analysisWindowOffset = 0; // 0 = most recent 6 months; +6 = the 6 months before that; etc.
+let analysisCategoryYearMonth = null; // 'YYYY-MM' for the category breakdown; null = current month
 
 async function renderAnalysis() {
   const content = document.getElementById('content');
@@ -342,6 +343,11 @@ async function renderAnalysis() {
   const catName = Object.fromEntries(cats.map((c) => [c.id, c.name]));
 
   const now = new Date();
+  if (!analysisCategoryYearMonth) {
+    analysisCategoryYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
+  const [catYear, catMonth] = analysisCategoryYearMonth.split('-').map(Number);
+
   const months = [];
   for (let i = 5; i >= 0; i--) {
     months.push({ year: now.getFullYear(), month: now.getMonth() - i - analysisWindowOffset, income: 0, expense: 0 });
@@ -364,7 +370,7 @@ async function renderAnalysis() {
 
   const thisMonthTx = transactions.filter((t) => {
     const d = new Date(t.occurred_at);
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    return d.getFullYear() === catYear && d.getMonth() === catMonth - 1;
   });
 
   const groupByCategory = (rows) => {
@@ -400,7 +406,11 @@ async function renderAnalysis() {
         <span><i class="dot expense"></i>รายจ่าย</span>
       </div>
     </div>
-    <div class="section-title">รายจ่ายตามหมวด (เดือนนี้)</div>
+    <div class="section-title row" style="align-items:center;">
+      <span>รายจ่าย-รายรับตามหมวด</span>
+      <input type="month" id="analysis-cat-month" value="${analysisCategoryYearMonth}" style="border:1px solid var(--line);border-radius:6px;padding:2px 6px;background:var(--surface);color:var(--ink);font-family:inherit;font-size:0.78rem;" />
+    </div>
+    <div class="section-title">รายจ่าย</div>
     <div class="card">
       ${
         categoryRows.length
@@ -413,10 +423,10 @@ async function renderAnalysis() {
         </div>`
               )
               .join('')
-          : '<p class="empty">ยังไม่มีรายจ่ายเดือนนี้</p>'
+          : '<p class="empty">ยังไม่มีรายจ่ายในเดือนที่เลือก</p>'
       }
     </div>
-    <div class="section-title">รายรับตามหมวด (เดือนนี้)</div>
+    <div class="section-title">รายรับ</div>
     <div class="card">
       ${
         incomeCategoryRows.length
@@ -429,7 +439,7 @@ async function renderAnalysis() {
         </div>`
               )
               .join('')
-          : '<p class="empty">ยังไม่มีรายรับเดือนนี้</p>'
+          : '<p class="empty">ยังไม่มีรายรับในเดือนที่เลือก</p>'
       }
     </div>
   `;
@@ -441,6 +451,11 @@ async function renderAnalysis() {
   document.getElementById('analysis-next').onclick = () => {
     if (analysisWindowOffset === 0) return;
     analysisWindowOffset = Math.max(0, analysisWindowOffset - 6);
+    renderAnalysis();
+  };
+  document.getElementById('analysis-cat-month').onchange = (e) => {
+    if (!e.target.value) return;
+    analysisCategoryYearMonth = e.target.value;
     renderAnalysis();
   };
 }
