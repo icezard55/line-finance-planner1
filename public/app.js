@@ -332,6 +332,8 @@ async function renderDashboard() {
 
 const THAI_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
+let analysisWindowOffset = 0; // 0 = most recent 6 months; +6 = the 6 months before that; etc.
+
 async function renderAnalysis() {
   const content = document.getElementById('content');
   content.innerHTML = '<p class="empty">กำลังโหลด...</p>';
@@ -342,7 +344,7 @@ async function renderAnalysis() {
   const now = new Date();
   const months = [];
   for (let i = 5; i >= 0; i--) {
-    months.push({ year: now.getFullYear(), month: now.getMonth() - i, income: 0, expense: 0 });
+    months.push({ year: now.getFullYear(), month: now.getMonth() - i - analysisWindowOffset, income: 0, expense: 0 });
   }
   // normalize month index (getMonth() - i can go negative across a year boundary)
   for (const m of months) {
@@ -380,9 +382,18 @@ async function renderAnalysis() {
   const incomeCategoryRows = groupByCategory(thisMonthTx.filter((t) => t.type === 'income'));
   const maxIncomeCat = Math.max(1, ...incomeCategoryRows.map(([, v]) => v));
 
+  const rangeLabel = `${THAI_MONTHS[months[0].month]} ${String(months[0].year + 543).slice(2)} - ${THAI_MONTHS[months[5].month]} ${String(months[5].year + 543).slice(2)}`;
+
   content.innerHTML = `
     <div class="card">
-      <h3>รายรับ-รายจ่ายย้อนหลัง 6 เดือน</h3>
+      <div class="row" style="align-items:center;margin-bottom:8px;">
+        <h3 style="margin:0;">รายรับ-รายจ่ายย้อนหลัง 6 เดือน</h3>
+      </div>
+      <div class="month-nav">
+        <button type="button" id="analysis-prev" aria-label="ย้อนหลังเพิ่ม">←</button>
+        <span>${rangeLabel}</span>
+        <button type="button" id="analysis-next" aria-label="ใกล้ปัจจุบันขึ้น" ${analysisWindowOffset === 0 ? 'disabled' : ''}>→</button>
+      </div>
       ${buildMonthlyChartSvg(months, maxVal)}
       <div class="chart-legend">
         <span><i class="dot income"></i>รายรับ</span>
@@ -422,6 +433,16 @@ async function renderAnalysis() {
       }
     </div>
   `;
+
+  document.getElementById('analysis-prev').onclick = () => {
+    analysisWindowOffset += 6;
+    renderAnalysis();
+  };
+  document.getElementById('analysis-next').onclick = () => {
+    if (analysisWindowOffset === 0) return;
+    analysisWindowOffset = Math.max(0, analysisWindowOffset - 6);
+    renderAnalysis();
+  };
 }
 
 function buildMonthlyChartSvg(months, maxVal) {
