@@ -126,44 +126,55 @@ async function handleImageMessage(event) {
   const { rows } = await pool.query(
     `INSERT INTO finance.pending_slips (user_id, amount, occurred_at, note, type)
      VALUES ($1, $2, $3, $4, $5)
-     RETURNING id`,
+     RETURNING *`,
     [userId, extracted.amount, extracted.occurred_at, extracted.note, extracted.type]
   );
-  const pendingId = rows[0].id;
-
-  const sign = extracted.type === 'income' ? '+' : '-';
-  const summary = `อ่านได้: ${sign}${extracted.amount.toLocaleString('th-TH')} บาท${extracted.note ? ` (${extracted.note})` : ''}${extracted.occurred_at ? `\nวันที่: ${extracted.occurred_at}` : ''}\n\nยืนยันบันทึกไหมครับ?`;
+  const draft = rows[0];
 
   try {
     await client.replyMessage({
       replyToken: event.replyToken,
-      messages: [
-        {
-          type: 'text',
-          text: summary,
-          quickReply: {
-            items: [
-              {
-                type: 'action',
-                action: { type: 'postback', label: 'ยืนยัน', data: `confirm_slip:${pendingId}`, displayText: 'ยืนยัน' },
-              },
-              {
-                type: 'action',
-                action: { type: 'postback', label: 'ยกเลิก', data: `cancel_slip:${pendingId}`, displayText: 'ยกเลิก' },
-              },
-            ],
-          },
-        },
-      ],
+      messages: [{ type: 'text', text: buildSlipSummary(draft, null), quickReply: buildSlipQuickReply(draft.id, false) }],
     });
   } catch (err) {
     console.error('slip summary reply failed', err);
   }
 }
 
+function buildSlipSummary(draft, categoryName) {
+  const sign = draft.type === 'income' ? '+' : '-';
+  const lines = [`อ่านได้: ${sign}${Number(draft.amount).toLocaleString('th-TH')} บาท${draft.note ? ` (${draft.note})` : ''}`];
+  if (draft.occurred_at) lines.push(`วันที่: ${String(draft.occurred_at).slice(0, 10)}`);
+  lines.push(`หมวด: ${categoryName || 'ไม่ระบุ'}`);
+  lines.push('', 'ยืนยันบันทึกไหมครับ?');
+  return lines.join('\n');
+}
+
+function buildSlipQuickReply(pendingId, hasCategory) {
+  return {
+    items: [
+      { type: 'action', action: { type: 'postback', label: 'ยืนยัน', data: `confirm_slip:${pendingId}`, displayText: 'ยืนยัน' } },
+      {
+        type: 'action',
+        action: {
+          type: 'postback',
+          label: hasCategory ? 'เปลี่ยนหมวด' : 'เลือกหมวด',
+          data: `pick_category:${pendingId}`,
+          displayText: hasCategory ? 'เปลี่ยนหมวด' : 'เลือกหมวด',
+        },
+      },
+      { type: 'action', action: { type: 'postback', label: 'ยกเลิก', data: `cancel_slip:${pendingId}`, displayText: 'ยกเลิก' } },
+    ],
+  };
+}
+
+// LINE quick-reply caps: 13 items total, 20-char labels.
+const CATEGORY_PICKER_LIMIT = 12;
+
 async function handlePostback(event) {
-  const [action, pendingId] = (event.postback.data || '').split(':');
-  if (!pendingId || (action !== 'confirm_slip' && action !== 'cancel_slip')) return;
+  const data = event.postback.data || '';
+  const [action, pendingId, extra] = data.split(':');
+  if (!pendingId) return;
 
   const userId = event.source.userId;
 
@@ -171,6 +182,69 @@ async function handlePostback(event) {
     await pool.query('DELETE FROM finance.pending_slips WHERE id = $1 AND user_id = $2', [pendingId, userId]);
     return replyText(event.replyToken, 'ยกเลิกแล้วครับ');
   }
+
+  if (action === 'pick_category') {
+    const { rows: [draft] } = await pool.query(
+      'SELECT * FROM finance.pending_slips WHERE id = $1 AND user_id = $2',
+      [pendingId, userId]
+    );
+    if (!draft) return replyText(event.replyToken, 'รายการนี้ถูกยืนยันหรือยกเลิกไปแล้ว');
+
+    const { rows: categories } = await pool.query(
+      `SELECT c.id, c.name,
+              (SELECT max(t.created_at) FROM finance.transactions t WHERE t.category_id = c.id AND t.user_id = c.user_id) AS last_used
+       FROM finance.categories c
+       WHERE c.user_id = $1 AND c.type = $2
+       ORDER BY last_used DESC NULLS LAST, c.name ASC
+       LIMIT $3`,
+      [userId, draft.type, CATEGORY_PICKER_LIMIT]
+    );
+
+    const items = categories.map((c) => ({
+      type: 'action',
+      action: {
+        type: 'postback',
+        label: c.name.length > 20 ? c.name.slice(0, 19) + '…' : c.name,
+        data: `set_category:${pendingId}:${c.id}`,
+        displayText: c.name,
+      },
+    }));
+    items.push({
+      type: 'action',
+      action: { type: 'postback', label: 'ไม่ระบุหมวด', data: `set_category:${pendingId}:none`, displayText: 'ไม่ระบุหมวด' },
+    });
+
+    return client
+      .replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: 'เลือกหมวดครับ', quickReply: { items } }],
+      })
+      .catch((err) => console.error('category picker reply failed', err));
+  }
+
+  if (action === 'set_category') {
+    const categoryId = extra === 'none' ? null : extra;
+    const { rows: [draft] } = await pool.query(
+      'UPDATE finance.pending_slips SET category_id = $1 WHERE id = $2 AND user_id = $3 RETURNING *',
+      [categoryId, pendingId, userId]
+    );
+    if (!draft) return replyText(event.replyToken, 'รายการนี้ถูกยืนยันหรือยกเลิกไปแล้ว');
+
+    let categoryName = null;
+    if (categoryId) {
+      const { rows: [cat] } = await pool.query('SELECT name FROM finance.categories WHERE id = $1', [categoryId]);
+      categoryName = cat && cat.name;
+    }
+
+    return client
+      .replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: buildSlipSummary(draft, categoryName), quickReply: buildSlipQuickReply(draft.id, Boolean(categoryId)) }],
+      })
+      .catch((err) => console.error('slip summary reply failed', err));
+  }
+
+  if (action !== 'confirm_slip') return;
 
   const { rows } = await pool.query(
     'SELECT * FROM finance.pending_slips WHERE id = $1 AND user_id = $2',
@@ -182,9 +256,9 @@ async function handlePostback(event) {
   }
 
   await pool.query(
-    `INSERT INTO finance.transactions (user_id, type, amount, occurred_at, note, source)
-     VALUES ($1, $2, $3, COALESCE($4, now()), $5, 'slip')`,
-    [userId, draft.type, draft.amount, draft.occurred_at, draft.note]
+    `INSERT INTO finance.transactions (user_id, type, amount, occurred_at, note, source, category_id)
+     VALUES ($1, $2, $3, COALESCE($4, now()), $5, 'slip', $6)`,
+    [userId, draft.type, draft.amount, draft.occurred_at, draft.note, draft.category_id]
   );
   await pool.query('DELETE FROM finance.pending_slips WHERE id = $1', [pendingId]);
 
