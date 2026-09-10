@@ -69,6 +69,8 @@ async function handleEvent(event) {
   }
 }
 
+const FREE_SLIP_MONTHLY_LIMIT = 5;
+
 async function handleImageMessage(event) {
   const userId = event.source.userId;
 
@@ -79,6 +81,21 @@ async function handleImageMessage(event) {
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return replyText(event.replyToken, 'ยังไม่ได้ตั้งค่าระบบอ่านสลิป รบกวนพิมพ์บันทึกเองก่อนนะครับ เช่น -150 กาแฟ');
+  }
+
+  const { rows: [user] } = await pool.query('SELECT plan FROM finance.users WHERE line_user_id = $1', [userId]);
+  if (user.plan !== 'premium') {
+    const { rows: [{ count }] } = await pool.query(
+      `SELECT count(*) FROM finance.transactions
+       WHERE user_id = $1 AND source = 'slip' AND created_at >= date_trunc('month', now())`,
+      [userId]
+    );
+    if (Number(count) >= FREE_SLIP_MONTHLY_LIMIT) {
+      return replyText(
+        event.replyToken,
+        `เดือนนี้ใช้โควตาอ่านสลิปฟรีครบ ${FREE_SLIP_MONTHLY_LIMIT} รายการแล้วครับ\nพิมพ์บันทึกเองได้ไม่จำกัด เช่น -150 กาแฟ\nหรือติดต่อแอดมินเพื่ออัปเกรดเป็นพรีเมียม (อ่านสลิปไม่จำกัด)`
+      );
+    }
   }
 
   let imageBase64;
