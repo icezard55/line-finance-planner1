@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../lib/db');
 const { config, client, middleware } = require('../lib/line');
+const { extractSlipData } = require('../lib/anthropic');
 
 const router = express.Router();
 
@@ -27,7 +28,10 @@ if (config.channelSecret && config.channelAccessToken) {
 }
 
 async function handleEvent(event) {
-  if (event.type !== 'message' || event.message.type !== 'text') return;
+  if (event.type === 'postback') return handlePostback(event);
+  if (event.type !== 'message') return;
+  if (event.message.type === 'image') return handleImageMessage(event);
+  if (event.message.type !== 'text') return;
 
   const match = event.message.text.trim().match(QUICK_LOG);
   if (!match) return;
@@ -62,6 +66,120 @@ async function handleEvent(event) {
     });
   } catch (err) {
     console.error('reply failed (transaction was still saved)', err);
+  }
+}
+
+async function handleImageMessage(event) {
+  const userId = event.source.userId;
+
+  await pool.query(
+    'INSERT INTO finance.users (line_user_id) VALUES ($1) ON CONFLICT DO NOTHING',
+    [userId]
+  );
+
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return replyText(event.replyToken, 'ยังไม่ได้ตั้งค่าระบบอ่านสลิป รบกวนพิมพ์บันทึกเองก่อนนะครับ เช่น -150 กาแฟ');
+  }
+
+  let imageBase64;
+  try {
+    const contentRes = await fetch(`https://api-data.line.me/v2/bot/message/${event.message.id}/content`, {
+      headers: { Authorization: 'Bearer ' + config.channelAccessToken },
+    });
+    if (!contentRes.ok) throw new Error(`download failed: ${contentRes.status}`);
+    const buf = Buffer.from(await contentRes.arrayBuffer());
+    imageBase64 = buf.toString('base64');
+  } catch (err) {
+    console.error('slip image download failed', err);
+    return replyText(event.replyToken, 'ดาวน์โหลดรูปไม่สำเร็จ ลองส่งใหม่อีกครั้งนะครับ');
+  }
+
+  let extracted;
+  try {
+    extracted = await extractSlipData(imageBase64);
+  } catch (err) {
+    console.error('slip extraction failed', err);
+    return replyText(event.replyToken, 'อ่านสลิปไม่สำเร็จ รบกวนพิมพ์บันทึกเองแทนนะครับ เช่น -150 กาแฟ');
+  }
+
+  if (extracted.amount === null) {
+    return replyText(event.replyToken, 'อ่านจำนวนเงินในสลิปไม่ชัดเจน รบกวนพิมพ์บันทึกเองแทนนะครับ เช่น -150 กาแฟ');
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO finance.pending_slips (user_id, amount, occurred_at, note, type)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id`,
+    [userId, extracted.amount, extracted.occurred_at, extracted.note, extracted.type]
+  );
+  const pendingId = rows[0].id;
+
+  const sign = extracted.type === 'income' ? '+' : '-';
+  const summary = `อ่านได้: ${sign}${extracted.amount.toLocaleString('th-TH')} บาท${extracted.note ? ` (${extracted.note})` : ''}${extracted.occurred_at ? `\nวันที่: ${extracted.occurred_at}` : ''}\n\nยืนยันบันทึกไหมครับ?`;
+
+  try {
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [
+        {
+          type: 'text',
+          text: summary,
+          quickReply: {
+            items: [
+              {
+                type: 'action',
+                action: { type: 'postback', label: 'ยืนยัน', data: `confirm_slip:${pendingId}`, displayText: 'ยืนยัน' },
+              },
+              {
+                type: 'action',
+                action: { type: 'postback', label: 'ยกเลิก', data: `cancel_slip:${pendingId}`, displayText: 'ยกเลิก' },
+              },
+            ],
+          },
+        },
+      ],
+    });
+  } catch (err) {
+    console.error('slip summary reply failed', err);
+  }
+}
+
+async function handlePostback(event) {
+  const [action, pendingId] = (event.postback.data || '').split(':');
+  if (!pendingId || (action !== 'confirm_slip' && action !== 'cancel_slip')) return;
+
+  const userId = event.source.userId;
+
+  if (action === 'cancel_slip') {
+    await pool.query('DELETE FROM finance.pending_slips WHERE id = $1 AND user_id = $2', [pendingId, userId]);
+    return replyText(event.replyToken, 'ยกเลิกแล้วครับ');
+  }
+
+  const { rows } = await pool.query(
+    'SELECT * FROM finance.pending_slips WHERE id = $1 AND user_id = $2',
+    [pendingId, userId]
+  );
+  const draft = rows[0];
+  if (!draft) {
+    return replyText(event.replyToken, 'รายการนี้ถูกยืนยันหรือยกเลิกไปแล้ว');
+  }
+
+  await pool.query(
+    `INSERT INTO finance.transactions (user_id, type, amount, occurred_at, note, source)
+     VALUES ($1, $2, $3, COALESCE($4, now()), $5, 'slip')`,
+    [userId, draft.type, draft.amount, draft.occurred_at, draft.note]
+  );
+  await pool.query('DELETE FROM finance.pending_slips WHERE id = $1', [pendingId]);
+
+  const sign = draft.type === 'income' ? '+' : '-';
+  return replyText(event.replyToken, `บันทึกแล้ว: ${sign}${Number(draft.amount).toLocaleString('th-TH')} บาท${draft.note ? ` (${draft.note})` : ''}`);
+}
+
+async function replyText(replyToken, text) {
+  try {
+    await client.replyMessage({ replyToken, messages: [{ type: 'text', text }] });
+  } catch (err) {
+    console.error('reply failed', err);
   }
 }
 
