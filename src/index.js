@@ -30,6 +30,12 @@ app.use('/api/public/report', clientReport.publicRouter);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const api = express.Router();
+// Data changes every time a transaction is added (LIFF form, chat quick-log, or a
+// confirmed slip) — never let the browser serve a stale cached/304 response here.
+api.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
 api.use(liffAuth);
 
 api.use('/profile', profileRouter);
