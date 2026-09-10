@@ -549,7 +549,7 @@ async function renderProfile() {
         </select>
       </div>
       <div class="field"><label>สถานที่ทำงาน</label><input name="employer" value="${attr(profile.employer)}" /></div>
-      <div class="field"><label>รายได้เฉลี่ย/เดือน</label><input type="number" name="monthly_income_avg" value="${attr(profile.monthly_income_avg)}" /></div>
+      <div class="field"><label>รายได้เฉลี่ย/เดือน</label><input type="number" step="any" name="monthly_income_avg" value="${attr(profile.monthly_income_avg)}" /></div>
       <div class="field"><label>เริ่มงานเมื่อ</label><input type="date" name="work_start_date" value="${attr((profile.work_start_date || '').slice(0, 10))}" /></div>
       <button class="primary" type="submit">บันทึกโปรไฟล์</button>
     </form>
@@ -585,8 +585,8 @@ function renderInvestmentCalculator() {
   const content = document.getElementById('content');
   content.innerHTML = `
     <form class="entry-form" id="invest-form">
-      <div class="field"><label>เงินลงทุนเริ่มต้น</label><input type="number" name="initial" value="0" required /></div>
-      <div class="field"><label>ลงทุนเพิ่มต่อเดือน</label><input type="number" name="monthly" value="0" required /></div>
+      <div class="field"><label>เงินลงทุนเริ่มต้น</label><input type="number" step="any" name="initial" value="0" required /></div>
+      <div class="field"><label>ลงทุนเพิ่มต่อเดือน</label><input type="number" step="any" name="monthly" value="0" required /></div>
       <div class="field"><label>ผลตอบแทนคาดหวังต่อปี (%)</label><input type="number" step="0.1" name="annualRatePct" value="5" required /></div>
       <div class="field"><label>ระยะเวลาลงทุน (ปี)</label><input type="number" name="years" value="20" required /></div>
       <button class="primary" type="submit">คำนวณ</button>
@@ -655,8 +655,8 @@ async function renderEducationPlan() {
                 <h3>${escapeHtml(child.name)}</h3>
                 <p class="sub" style="margin-bottom:10px;">ยังไม่ได้ตั้งเป้าทุนการศึกษา</p>
                 <form class="entry-form education-goal-form" data-member-id="${child.id}" style="margin:0;">
-                  <div class="field"><label>ยอดเป้าหมาย</label><input type="number" name="target_amount" required /></div>
-                  <div class="field"><label>สะสมแล้ว</label><input type="number" name="current_amount" value="0" /></div>
+                  <div class="field"><label>ยอดเป้าหมาย</label><input type="number" step="any" name="target_amount" required /></div>
+                  <div class="field"><label>สะสมแล้ว</label><input type="number" step="any" name="current_amount" value="0" /></div>
                   <div class="field"><label>ภายในวันที่</label><input type="date" name="target_date" /></div>
                   <button class="primary" type="submit">ตั้งเป้าการศึกษา</button>
                 </form>
@@ -737,7 +737,7 @@ async function renderModule(mod, opts = {}) {
       if (f.type === 'account-select') {
         return `<div class="field"><label>${f.label}</label><select name="${f.key}" ${f.required ? 'required' : ''}><option value="">ไม่ระบุ</option>${accountOptions}</select></div>`;
       }
-      return `<div class="field"><label>${f.label}</label><input type="${f.type}" name="${f.key}" ${f.required ? 'required' : ''} /></div>`;
+      return `<div class="field"><label>${f.label}</label><input type="${f.type}" name="${f.key}" ${f.type === 'number' ? 'step="any"' : ''} ${f.required ? 'required' : ''} /></div>`;
     })
     .join('');
 
@@ -829,8 +829,8 @@ async function renderInsuranceBenefits(policy, parentMod) {
     </div>
     <form class="entry-form" id="benefit-form">
       <div class="field"><label>ชื่อสิทธิ</label><input name="benefit_name" required /></div>
-      <div class="field"><label>วงเงิน/สิทธิสูงสุด</label><input type="number" name="benefit_limit" /></div>
-      <div class="field"><label>ใช้ไปแล้ว</label><input type="number" name="used_amount" /></div>
+      <div class="field"><label>วงเงิน/สิทธิสูงสุด</label><input type="number" step="any" name="benefit_limit" /></div>
+      <div class="field"><label>ใช้ไปแล้ว</label><input type="number" step="any" name="used_amount" /></div>
       <div class="field"><label>รอบต่ออายุ</label>
         <select name="renew_cycle">
           <option value="รายปี">รายปี</option>
