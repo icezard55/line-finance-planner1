@@ -9,6 +9,7 @@ const webhookRouter = require('./routes/webhook');
 const profileRouter = require('./routes/profile');
 const insuranceBenefitsRouter = require('./routes/insuranceBenefits');
 const clientReport = require('./routes/clientReport');
+const adminRouter = require('./routes/admin');
 const remindersJob = require('./jobs/reminders');
 const recurringJob = require('./jobs/recurring');
 
@@ -59,6 +60,7 @@ for (const { path, table, columns } of modules) {
 }
 
 api.use('/score', clientReport.personalRouter);
+api.use('/admin', adminRouter);
 
 app.use('/api', api);
 

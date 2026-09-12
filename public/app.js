@@ -1,4 +1,5 @@
 const LIFF_ID = '2011535703-mCiWWX9B';
+const ADMIN_LINE_USER_ID = 'U42c04948f29be932d6c75dfd34b3c1b3';
 
 const MODULES = [
   {
@@ -125,8 +126,9 @@ let idToken = null;
 let categoriesCache = null;
 let accountsCache = null;
 let activeTab = 'dashboard';
+let isAdmin = false;
 
-const KNOWN_TABS = ['dashboard', 'profile', 'analysis', 'investment', 'education', ...MODULES.map((m) => m.key)];
+const KNOWN_TABS = ['dashboard', 'profile', 'analysis', 'investment', 'education', 'admin', ...MODULES.map((m) => m.key)];
 
 function readRequestedTab() {
   const requested = new URLSearchParams(window.location.search).get('tab');
@@ -143,6 +145,7 @@ async function main() {
   const profile = await liff.getProfile();
   document.getElementById('user-name').textContent = profile.displayName;
   if (profile.pictureUrl) document.getElementById('user-avatar').src = profile.pictureUrl;
+  isAdmin = profile.userId === ADMIN_LINE_USER_ID;
 
   activeTab = readRequestedTab();
 
@@ -178,6 +181,7 @@ function renderTabs() {
     { key: 'investment', label: 'การลงทุน' },
     { key: 'profile', label: 'โปรไฟล์' },
     ...MODULES.map((m) => ({ key: m.key, label: m.label })),
+    ...(isAdmin ? [{ key: 'admin', label: 'แอดมิน' }] : []),
   ];
   for (const e of entries) {
     const btn = document.createElement('button');
@@ -198,8 +202,50 @@ function renderActiveTab() {
   if (activeTab === 'profile') return renderProfile();
   if (activeTab === 'investment') return renderInvestmentCalculator();
   if (activeTab === 'education') return renderEducationPlan();
+  if (activeTab === 'admin') return renderAdmin();
   const mod = MODULES.find((m) => m.key === activeTab);
   if (mod) return renderModule(mod);
+}
+
+async function renderAdmin() {
+  const content = document.getElementById('content');
+  content.innerHTML = '<p class="empty">กำลังโหลด...</p>';
+
+  const users = await authFetch('/admin/users');
+
+  content.innerHTML = `
+    <div class="section-title">ผู้ใช้ทั้งหมด (${users.length})</div>
+    <div class="card" id="admin-user-list"></div>
+  `;
+
+  const list = document.getElementById('admin-user-list');
+  list.innerHTML = users
+    .map(
+      (u) => `
+      <div class="list-item">
+        <span>${escapeHtml(u.displayName || u.line_user_id)} · ${u.tx_count} รายการ${u.line_user_id === ADMIN_LINE_USER_ID ? ' (คุณ)' : ''}</span>
+        <span class="item-actions">
+          <span class="meta">${u.plan === 'premium' ? 'พรีเมียม' : 'ฟรี'}</span>
+          ${
+            u.line_user_id === ADMIN_LINE_USER_ID
+              ? ''
+              : `<button class="link-btn" data-toggle-id="${u.line_user_id}" data-plan="${u.plan}">${u.plan === 'premium' ? 'ปรับเป็นฟรี' : 'ปรับเป็นพรีเมียม'}</button>`
+          }
+        </span>
+      </div>`
+    )
+    .join('');
+
+  list.querySelectorAll('[data-toggle-id]').forEach((btn) => {
+    btn.onclick = async () => {
+      const nextPlan = btn.dataset.plan === 'premium' ? 'free' : 'premium';
+      await authFetch(`/admin/users/${btn.dataset.toggleId}/plan`, {
+        method: 'PUT',
+        body: JSON.stringify({ plan: nextPlan }),
+      });
+      renderAdmin();
+    };
+  });
 }
 
 function goToTab(key) {
