@@ -684,7 +684,7 @@ async function renderEducationPlan() {
 }
 
 async function renderModule(mod, opts = {}) {
-  const { containerId = 'content', clientId } = opts;
+  const { containerId = 'content' } = opts;
   const content = document.getElementById(containerId);
   content.innerHTML = '<p class="empty">กำลังโหลด...</p>';
 
@@ -699,10 +699,10 @@ async function renderModule(mod, opts = {}) {
     accountOptions = accts.map((a) => `<option value="${a.id}">${escapeHtml(a.account_name)}</option>`).join('');
   }
 
-  const rows = await authFetch('/' + mod.path + (clientId ? '?client_id=' + clientId : ''));
+  const rows = await authFetch('/' + mod.path);
 
   let coverageGapHtml = '';
-  if (mod.key === 'insurance-policies' && !clientId) {
+  if (mod.key === 'insurance-policies') {
     const { score } = await authFetch('/score');
     const s = score.summary;
     const lifePct = s.recommendedLifeCoverage > 0 ? Math.min(100, (s.lifeCoverage / s.recommendedLifeCoverage) * 100) : 100;
@@ -754,7 +754,7 @@ async function renderModule(mod, opts = {}) {
     <div class="card" id="${listId}"></div>
   `;
 
-  renderList(mod, rows, { containerId, listId, clientId });
+  renderList(mod, rows, { containerId, listId });
 
   document.getElementById(formId).onsubmit = async (e) => {
     e.preventDefault();
@@ -763,7 +763,6 @@ async function renderModule(mod, opts = {}) {
       if (data[k] === '') delete data[k];
     }
     Object.assign(data, mod.extraFields || {});
-    if (clientId) data.client_id = clientId;
     await authFetch('/' + mod.path, { method: 'POST', body: JSON.stringify(data) });
     invalidateLookupCache(mod.path);
     renderModule(mod, opts);
@@ -776,14 +775,14 @@ function invalidateLookupCache(path) {
 }
 
 function renderList(mod, rows, opts = {}) {
-  const { containerId = 'content', listId = 'list', clientId } = opts;
+  const { containerId = 'content', listId = 'list' } = opts;
   const list = document.getElementById(listId);
   if (!rows.length) {
     list.innerHTML = '<p class="empty">ยังไม่มีข้อมูล</p>';
     return;
   }
   const cols = mod.columns || mod.fields.slice(0, 2).map((f) => ({ key: f.key, label: (r) => r[f.key] }));
-  const showBenefits = mod.key === 'insurance-policies' && !clientId;
+  const showBenefits = mod.key === 'insurance-policies';
   list.innerHTML = rows
     .map(
       (r) => `
@@ -801,7 +800,7 @@ function renderList(mod, rows, opts = {}) {
     btn.onclick = async () => {
       await authFetch('/' + mod.path + '/' + btn.dataset.id, { method: 'DELETE' });
       invalidateLookupCache(mod.path);
-      renderModule(mod, { containerId, clientId });
+      renderModule(mod, { containerId });
     };
   });
 
