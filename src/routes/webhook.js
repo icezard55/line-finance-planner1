@@ -134,7 +134,7 @@ async function handleImageMessage(event) {
   try {
     await client.replyMessage({
       replyToken: event.replyToken,
-      messages: [{ type: 'text', text: buildSlipSummary(draft, null), quickReply: buildSlipQuickReply(draft.id, false) }],
+      messages: [{ type: 'text', text: buildSlipSummary(draft, null), quickReply: buildSlipQuickReply(draft, false) }],
     });
   } catch (err) {
     console.error('slip summary reply failed', err);
@@ -150,20 +150,22 @@ function buildSlipSummary(draft, categoryName) {
   return lines.join('\n');
 }
 
-function buildSlipQuickReply(pendingId, hasCategory) {
+function buildSlipQuickReply(draft, hasCategory) {
+  const toggleLabel = draft.type === 'income' ? 'เปลี่ยนเป็นรายจ่าย' : 'เปลี่ยนเป็นรายรับ';
   return {
     items: [
-      { type: 'action', action: { type: 'postback', label: 'ยืนยัน', data: `confirm_slip:${pendingId}`, displayText: 'ยืนยัน' } },
+      { type: 'action', action: { type: 'postback', label: 'ยืนยัน', data: `confirm_slip:${draft.id}`, displayText: 'ยืนยัน' } },
+      { type: 'action', action: { type: 'postback', label: toggleLabel, data: `toggle_type:${draft.id}`, displayText: toggleLabel } },
       {
         type: 'action',
         action: {
           type: 'postback',
           label: hasCategory ? 'เปลี่ยนหมวด' : 'เลือกหมวด',
-          data: `pick_category:${pendingId}`,
+          data: `pick_category:${draft.id}`,
           displayText: hasCategory ? 'เปลี่ยนหมวด' : 'เลือกหมวด',
         },
       },
-      { type: 'action', action: { type: 'postback', label: 'ยกเลิก', data: `cancel_slip:${pendingId}`, displayText: 'ยกเลิก' } },
+      { type: 'action', action: { type: 'postback', label: 'ยกเลิก', data: `cancel_slip:${draft.id}`, displayText: 'ยกเลิก' } },
     ],
   };
 }
@@ -239,7 +241,27 @@ async function handlePostback(event) {
     return client
       .replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: buildSlipSummary(draft, categoryName), quickReply: buildSlipQuickReply(draft.id, Boolean(categoryId)) }],
+        messages: [{ type: 'text', text: buildSlipSummary(draft, categoryName), quickReply: buildSlipQuickReply(draft, Boolean(categoryId)) }],
+      })
+      .catch((err) => console.error('slip summary reply failed', err));
+  }
+
+  if (action === 'toggle_type') {
+    // Categories are type-specific, so a leftover category_id from the old type
+    // would silently mislabel the transaction -- clear it on every toggle.
+    const { rows: [draft] } = await pool.query(
+      `UPDATE finance.pending_slips
+       SET type = CASE WHEN type = 'income' THEN 'expense' ELSE 'income' END, category_id = NULL
+       WHERE id = $1 AND user_id = $2
+       RETURNING *`,
+      [pendingId, userId]
+    );
+    if (!draft) return replyText(event.replyToken, 'รายการนี้ถูกยืนยันหรือยกเลิกไปแล้ว');
+
+    return client
+      .replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: buildSlipSummary(draft, null), quickReply: buildSlipQuickReply(draft, false) }],
       })
       .catch((err) => console.error('slip summary reply failed', err));
   }
