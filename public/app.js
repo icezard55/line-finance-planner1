@@ -239,6 +239,8 @@ async function renderAdmin() {
   list.querySelectorAll('[data-toggle-id]').forEach((btn) => {
     btn.onclick = async () => {
       const nextPlan = btn.dataset.plan === 'premium' ? 'free' : 'premium';
+      const label = nextPlan === 'premium' ? 'พรีเมียม' : 'ฟรี';
+      if (!confirm(`ยืนยันปรับผู้ใช้นี้เป็นแผน "${label}" ใช่ไหม?`)) return;
       await authFetch(`/admin/users/${btn.dataset.toggleId}/plan`, {
         method: 'PUT',
         body: JSON.stringify({ plan: nextPlan }),
