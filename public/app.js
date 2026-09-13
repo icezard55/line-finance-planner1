@@ -226,11 +226,7 @@ async function renderAdmin() {
         <span>${escapeHtml(u.displayName || u.line_user_id)} · ${u.tx_count} รายการ${u.line_user_id === ADMIN_LINE_USER_ID ? ' (คุณ)' : ''}</span>
         <span class="item-actions">
           <span class="meta">${u.plan === 'premium' ? 'พรีเมียม' : 'ฟรี'}</span>
-          ${
-            u.line_user_id === ADMIN_LINE_USER_ID
-              ? ''
-              : `<button class="link-btn" data-toggle-id="${u.line_user_id}" data-plan="${u.plan}">${u.plan === 'premium' ? 'ปรับเป็นฟรี' : 'ปรับเป็นพรีเมียม'}</button>`
-          }
+          <button class="link-btn" data-toggle-id="${u.line_user_id}" data-plan="${u.plan}">${u.plan === 'premium' ? 'ปรับเป็นฟรี' : 'ปรับเป็นพรีเมียม'}</button>
         </span>
       </div>`
     )
