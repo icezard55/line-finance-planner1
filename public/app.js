@@ -827,6 +827,7 @@ function renderList(mod, rows, opts = {}) {
   }
   const cols = mod.columns || mod.fields.slice(0, 2).map((f) => ({ key: f.key, label: (r) => r[f.key] }));
   const showBenefits = mod.key === 'insurance-policies';
+  const editableName = mod.key === 'categories';
   list.innerHTML = rows
     .map(
       (r) => `
@@ -834,6 +835,7 @@ function renderList(mod, rows, opts = {}) {
         <span>${cols.map((c) => escapeHtml(String(c.label(r) ?? ''))).join(' · ')}</span>
         <span class="item-actions">
           ${showBenefits ? `<button class="link-btn" data-benefits-id="${r.id}">สิทธิ</button>` : ''}
+          ${editableName ? `<button class="link-btn" data-edit-id="${r.id}" data-current-name="${attr(r.name)}">แก้ไข</button>` : ''}
           <button class="del" data-id="${r.id}">ลบ</button>
         </span>
       </div>`
@@ -847,6 +849,18 @@ function renderList(mod, rows, opts = {}) {
       renderModule(mod, { containerId });
     };
   });
+
+  if (editableName) {
+    list.querySelectorAll('[data-edit-id]').forEach((btn) => {
+      btn.onclick = async () => {
+        const newName = prompt('แก้ไขชื่อหมวด', btn.dataset.currentName);
+        if (!newName || newName === btn.dataset.currentName) return;
+        await authFetch('/' + mod.path + '/' + btn.dataset.editId, { method: 'PUT', body: JSON.stringify({ name: newName }) });
+        invalidateLookupCache(mod.path);
+        renderModule(mod, { containerId });
+      };
+    });
+  }
 
   if (showBenefits) {
     list.querySelectorAll('[data-benefits-id]').forEach((btn) => {
