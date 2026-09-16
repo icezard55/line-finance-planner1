@@ -42,16 +42,9 @@ async function seedDefaults(userId) {
   await pool.query(
     `INSERT INTO finance.accounts (user_id, account_name, account_type) VALUES
        ($1, 'เงินสด', 'cash'),
-       ($1, 'เงินโอน', 'bank'),
-       ($1, 'ทรูวอเลต', 'e-wallet'),
+       ($1, 'โอน', 'bank'),
        ($1, 'บัตรเครดิต', 'credit'),
-       ($1, 'อื่นๆ', 'other'),
-       ($1, 'กรุงเทพ', 'bank'),
-       ($1, 'กสิกรไทย', 'bank'),
-       ($1, 'ออมสิน', 'bank'),
-       ($1, 'กรุงไทย', 'bank'),
-       ($1, 'กรุงศรี', 'bank'),
-       ($1, 'ธกส', 'bank')`,
+       ($1, 'SPayLate', 'bnpl')`,
     [userId]
   );
   await pool.query(

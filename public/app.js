@@ -171,6 +171,14 @@ function authFetch(path, options = {}) {
   });
 }
 
+// Hidden for now (not deleted -- data, routes, and code all still work,
+// just not linked from the tab bar). Toggle a key back on here to restore it.
+const HIDDEN_TAB_KEYS = new Set([
+  'education', 'investment', 'profile',
+  'budgets', 'assets', 'liabilities', 'insurance-policies', 'goals',
+  'family-members', 'reminders', 'employee-benefits', 'risk-assessments', 'recurring-transactions',
+]);
+
 function renderTabs() {
   const tabs = document.getElementById('tabs');
   tabs.innerHTML = '';
@@ -182,7 +190,7 @@ function renderTabs() {
     { key: 'profile', label: 'โปรไฟล์' },
     ...MODULES.map((m) => ({ key: m.key, label: m.label })),
     ...(isAdmin ? [{ key: 'admin', label: 'แอดมิน' }] : []),
-  ];
+  ].filter((e) => !HIDDEN_TAB_KEYS.has(e.key));
   for (const e of entries) {
     const btn = document.createElement('button');
     btn.textContent = e.label;
@@ -383,8 +391,9 @@ async function renderAnalysis() {
   const content = document.getElementById('content');
   content.innerHTML = '<p class="empty">กำลังโหลด...</p>';
 
-  const [transactions, cats] = await Promise.all([authFetch('/transactions'), getCategories()]);
+  const [transactions, cats, accts] = await Promise.all([authFetch('/transactions'), getCategories(), getAccounts()]);
   const catName = Object.fromEntries(cats.map((c) => [c.id, c.name]));
+  const acctName = Object.fromEntries(accts.map((a) => [a.id, a.account_name]));
 
   const now = new Date();
   if (!analysisCategoryYearMonth) {
@@ -431,6 +440,18 @@ async function renderAnalysis() {
 
   const incomeCategoryRows = groupByCategory(thisMonthTx.filter((t) => t.type === 'income'));
   const maxIncomeCat = Math.max(1, ...incomeCategoryRows.map(([, v]) => v));
+
+  const groupByAccount = (rows) => {
+    const byAccount = {};
+    for (const t of rows) {
+      const key = t.account_id ? acctName[t.account_id] || 'ไม่ระบุช่องทาง' : 'ไม่ระบุช่องทาง';
+      byAccount[key] = (byAccount[key] || 0) + Number(t.amount);
+    }
+    return Object.entries(byAccount).sort((a, b) => b[1] - a[1]);
+  };
+
+  const accountExpenseRows = groupByAccount(thisMonthTx.filter((t) => t.type === 'expense'));
+  const maxAccountExpense = Math.max(1, ...accountExpenseRows.map(([, v]) => v));
 
   const rangeLabel = `${THAI_MONTHS[months[0].month]} ${String(months[0].year + 543).slice(2)} - ${THAI_MONTHS[months[5].month]} ${String(months[5].year + 543).slice(2)}`;
 
@@ -484,6 +505,22 @@ async function renderAnalysis() {
               )
               .join('')
           : '<p class="empty">ยังไม่มีรายรับในเดือนที่เลือก</p>'
+      }
+    </div>
+    <div class="section-title">รายจ่ายตามช่องทางชำระเงิน</div>
+    <div class="card">
+      ${
+        accountExpenseRows.length
+          ? accountExpenseRows
+              .map(
+                ([name, val]) => `
+        <div class="cat-row">
+          <div class="cat-row-top"><span>${escapeHtml(name)}</span><span>${val.toLocaleString('th-TH')}</span></div>
+          <div class="cat-bar"><div class="cat-bar-fill expense" style="width:${((val / maxAccountExpense) * 100).toFixed(1)}%"></div></div>
+        </div>`
+              )
+              .join('')
+          : '<p class="empty">ยังไม่มีรายจ่ายในเดือนที่เลือก</p>'
       }
     </div>
   `;
@@ -544,26 +581,12 @@ function buildScoreGaugeSvg(score) {
   </svg>`;
 }
 
+// Only tiles pointing at tabs that are still in the tab bar (see HIDDEN_TAB_KEYS
+// in renderTabs) -- add tiles back here if those tabs get un-hidden.
 const NAV_TILES = [
   {
     key: 'analysis', label: 'ภาพรวมการเงิน',
     icon: '<rect x="4" y="12" width="4" height="8" rx="1"></rect><rect x="10" y="7" width="4" height="13" rx="1"></rect><rect x="16" y="3" width="4" height="17" rx="1"></rect>',
-  },
-  {
-    key: 'insurance-policies', label: 'ความคุ้มครอง',
-    icon: '<path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>',
-  },
-  {
-    key: 'education', label: 'การศึกษาบุตร',
-    icon: '<path d="M12 4L2 9l10 5 10-5-10-5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path><path d="M6 11.5v4c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-4" fill="none" stroke="currentColor" stroke-width="2"></path>',
-  },
-  {
-    key: 'goals', label: 'เป้าหมาย/เกษียณ',
-    icon: '<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"></circle><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"></circle><circle cx="12" cy="12" r="1.2" fill="currentColor"></circle>',
-  },
-  {
-    key: 'investment', label: 'การลงทุน',
-    icon: '<path d="M3 17l6-6 4 4 8-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M15 6h6v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>',
   },
 ];
 
