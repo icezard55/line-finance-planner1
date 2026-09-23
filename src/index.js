@@ -10,8 +10,10 @@ const profileRouter = require('./routes/profile');
 const insuranceBenefitsRouter = require('./routes/insuranceBenefits');
 const clientReport = require('./routes/clientReport');
 const adminRouter = require('./routes/admin');
+const crmRouter = require('./routes/crm');
 const remindersJob = require('./jobs/reminders');
 const recurringJob = require('./jobs/recurring');
+const crmRemindersJob = require('./jobs/crmReminders');
 
 const app = express();
 
@@ -61,6 +63,7 @@ for (const { path, table, columns } of modules) {
 
 api.use('/score', clientReport.personalRouter);
 api.use('/admin', adminRouter);
+api.use('/crm', crmRouter);
 
 app.use('/api', api);
 
@@ -74,4 +77,5 @@ app.listen(port, () => {
   console.log(`finance backend listening on :${port}`);
   remindersJob.start();
   recurringJob.start();
+  crmRemindersJob.start();
 });

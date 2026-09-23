@@ -128,7 +128,7 @@ let accountsCache = null;
 let activeTab = 'dashboard';
 let isAdmin = false;
 
-const KNOWN_TABS = ['dashboard', 'profile', 'analysis', 'investment', 'education', 'admin', ...MODULES.map((m) => m.key)];
+const KNOWN_TABS = ['dashboard', 'agent', 'profile', 'analysis', 'investment', 'education', 'admin', ...MODULES.map((m) => m.key)];
 
 function readRequestedTab() {
   const requested = new URLSearchParams(window.location.search).get('tab');
@@ -148,11 +148,15 @@ async function main() {
   isAdmin = profile.userId === ADMIN_LINE_USER_ID;
 
   activeTab = readRequestedTab();
+  // Invite link from an agent's finance-crm: https://liff.line.me/<LIFF_ID>?crm=<code>
+  const crmCode = new URLSearchParams(window.location.search).get('crm');
+  if (crmCode) activeTab = 'agent';
 
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
 
   renderTabs();
+  if (crmCode) return renderCrmConsent(crmCode);
   renderActiveTab();
 }
 
@@ -184,6 +188,7 @@ function renderTabs() {
   tabs.innerHTML = '';
   const entries = [
     { key: 'dashboard', label: 'แดชบอร์ด' },
+    { key: 'agent', label: 'ตัวแทนของฉัน' },
     { key: 'analysis', label: 'วิเคราะห์' },
     { key: 'education', label: 'การศึกษาบุตร' },
     { key: 'investment', label: 'การลงทุน' },
@@ -206,6 +211,7 @@ function renderTabs() {
 
 function renderActiveTab() {
   if (activeTab === 'dashboard') return renderDashboard();
+  if (activeTab === 'agent') return renderAgent();
   if (activeTab === 'analysis') return renderAnalysis();
   if (activeTab === 'profile') return renderProfile();
   if (activeTab === 'investment') return renderInvestmentCalculator();
