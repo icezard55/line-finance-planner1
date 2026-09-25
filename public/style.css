@@ -437,3 +437,16 @@ select:focus-visible {
   gap: 4px;
   margin: 4px 0 16px;
 }
+
+/* finance-crm link (crm.js) */
+.scope-item { justify-content: flex-start; align-items: flex-start; gap: 10px; }
+.scope-item input { margin-top: 3px; }
+.crm-note { margin: 0 4px 14px; }
+.crm-full { width: 100%; }
+.crm-center { display: block; margin: 14px auto 0; }
+.crm-tight { margin: 0; }
+.crm-due { margin: 6px 0; font-weight: 700; color: var(--ink); }
+.crm-due.overdue { color: var(--danger); }
+.crm-actions { gap: 12px; margin-top: 10px; align-items: center; }
+.crm-actions .primary { flex: 1; }
+.crm-danger { color: var(--danger); }
