@@ -482,7 +482,7 @@ async function renderAnalysis() {
           ? categoryRows
               .map(
                 ([name, val]) => `
-        <div class="cat-row">
+        <div class="cat-row cat-row-clickable" data-group="expense-cat" data-name="${attr(name)}">
           <div class="cat-row-top"><span>${escapeHtml(name)}</span><span>${val.toLocaleString('th-TH')}</span></div>
           <div class="cat-bar"><div class="cat-bar-fill expense" style="width:${((val / maxCat) * 100).toFixed(1)}%"></div></div>
         </div>`
@@ -498,7 +498,7 @@ async function renderAnalysis() {
           ? incomeCategoryRows
               .map(
                 ([name, val]) => `
-        <div class="cat-row">
+        <div class="cat-row cat-row-clickable" data-group="income-cat" data-name="${attr(name)}">
           <div class="cat-row-top"><span>${escapeHtml(name)}</span><span>${val.toLocaleString('th-TH')}</span></div>
           <div class="cat-bar"><div class="cat-bar-fill income" style="width:${((val / maxIncomeCat) * 100).toFixed(1)}%"></div></div>
         </div>`
@@ -514,7 +514,7 @@ async function renderAnalysis() {
           ? accountExpenseRows
               .map(
                 ([name, val]) => `
-        <div class="cat-row">
+        <div class="cat-row cat-row-clickable" data-group="expense-acct" data-name="${attr(name)}">
           <div class="cat-row-top"><span>${escapeHtml(name)}</span><span>${val.toLocaleString('th-TH')}</span></div>
           <div class="cat-bar"><div class="cat-bar-fill expense" style="width:${((val / maxAccountExpense) * 100).toFixed(1)}%"></div></div>
         </div>`
@@ -524,6 +524,28 @@ async function renderAnalysis() {
       }
     </div>
   `;
+
+  document.querySelectorAll('.cat-row-clickable').forEach((row) => {
+    row.onclick = () => {
+      const group = row.dataset.group;
+      const name = row.dataset.name;
+      let rows;
+      let title;
+      if (group === 'expense-cat' || group === 'income-cat') {
+        const type = group === 'expense-cat' ? 'expense' : 'income';
+        rows = thisMonthTx.filter(
+          (t) => t.type === type && (t.category_id ? catName[t.category_id] || 'ไม่ระบุหมวด' : 'ไม่ระบุหมวด') === name
+        );
+        title = `${type === 'expense' ? 'รายจ่าย' : 'รายรับ'} · ${name}`;
+      } else {
+        rows = thisMonthTx.filter(
+          (t) => t.type === 'expense' && (t.account_id ? acctName[t.account_id] || 'ไม่ระบุช่องทาง' : 'ไม่ระบุช่องทาง') === name
+        );
+        title = `รายจ่าย · ${name}`;
+      }
+      renderTransactionDetail(title, rows);
+    };
+  });
 
   document.getElementById('analysis-prev').onclick = () => {
     analysisWindowOffset += 6;
@@ -537,6 +559,40 @@ async function renderAnalysis() {
   document.getElementById('analysis-cat-month').onchange = (e) => {
     if (!e.target.value) return;
     analysisCategoryYearMonth = e.target.value;
+    renderAnalysis();
+  };
+}
+
+function renderTransactionDetail(title, rows) {
+  const content = document.getElementById('content');
+  const sorted = [...rows].sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
+  const total = rows.reduce((sum, t) => sum + Number(t.amount), 0);
+
+  content.innerHTML = `
+    <a href="#" class="back-btn link-btn" id="detail-back">← กลับไปหน้าวิเคราะห์</a>
+    <div class="card">
+      <h3 style="margin:0 0 4px;">${escapeHtml(title)}</h3>
+      <p class="sub" style="margin:0;">${sorted.length} รายการ · รวม ${total.toLocaleString('th-TH')} บาท</p>
+    </div>
+    <div class="card">
+      ${
+        sorted.length
+          ? sorted
+              .map(
+                (t) => `
+        <div class="list-item">
+          <span>${escapeHtml(t.note || '-')}</span>
+          <span class="meta">${(t.occurred_at || '').slice(0, 10)} · ${Number(t.amount).toLocaleString('th-TH')}</span>
+        </div>`
+              )
+              .join('')
+          : '<p class="empty">ไม่มีรายการ</p>'
+      }
+    </div>
+  `;
+
+  document.getElementById('detail-back').onclick = (e) => {
+    e.preventDefault();
     renderAnalysis();
   };
 }
