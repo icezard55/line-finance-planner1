@@ -134,23 +134,64 @@ async function handleImageMessage(event) {
   try {
     await client.replyMessage({
       replyToken: event.replyToken,
-      messages: [{ type: 'text', text: buildSlipSummary(draft, null), quickReply: buildSlipQuickReply(draft, false) }],
+      messages: [await slipSummaryMessage(draft)],
     });
   } catch (err) {
     console.error('slip summary reply failed', err);
   }
 }
 
-function buildSlipSummary(draft, categoryName) {
+function buildSlipSummary(draft, categoryName, accountName) {
   const sign = draft.type === 'income' ? '+' : '-';
   const lines = [`อ่านได้: ${sign}${Number(draft.amount).toLocaleString('th-TH')} บาท${draft.note ? ` (${draft.note})` : ''}`];
   if (draft.occurred_at) lines.push(`วันที่: ${String(draft.occurred_at).slice(0, 10)}`);
   lines.push(`หมวด: ${categoryName || 'ไม่ระบุ'}`);
+  lines.push(`ช่องทาง: ${accountName || 'ไม่ระบุ'}`);
   lines.push('', 'ยืนยันบันทึกไหมครับ?');
   return lines.join('\n');
 }
 
-function buildSlipQuickReply(draft, hasCategory) {
+async function slipSummaryMessage(draft) {
+  const [cat, acct] = await Promise.all([
+    draft.category_id ? pool.query('SELECT name FROM finance.categories WHERE id = $1', [draft.category_id]) : null,
+    draft.account_id ? pool.query('SELECT account_name FROM finance.accounts WHERE id = $1', [draft.account_id]) : null,
+  ]);
+  const categoryName = cat && cat.rows[0] && cat.rows[0].name;
+  const accountName = acct && acct.rows[0] && acct.rows[0].account_name;
+  return {
+    type: 'text',
+    text: buildSlipSummary(draft, categoryName, accountName),
+    quickReply: buildSlipQuickReply(draft, Boolean(categoryName), Boolean(accountName)),
+  };
+}
+
+async function accountPickerMessage(draft, userId) {
+  const { rows: accounts } = await pool.query(
+    `SELECT a.id, a.account_name,
+            (SELECT max(t.created_at) FROM finance.transactions t WHERE t.account_id = a.id AND t.user_id = a.user_id) AS last_used
+     FROM finance.accounts a
+     WHERE a.user_id = $1
+     ORDER BY last_used DESC NULLS LAST, a.account_name ASC
+     LIMIT $2`,
+    [userId, CATEGORY_PICKER_LIMIT]
+  );
+  const items = accounts.map((a) => ({
+    type: 'action',
+    action: {
+      type: 'postback',
+      label: a.account_name.length > 20 ? a.account_name.slice(0, 19) + '…' : a.account_name,
+      data: `set_account:${draft.id}:${a.id}`,
+      displayText: a.account_name,
+    },
+  }));
+  items.push({
+    type: 'action',
+    action: { type: 'postback', label: 'ไม่ระบุช่องทาง', data: `set_account:${draft.id}:none`, displayText: 'ไม่ระบุช่องทาง' },
+  });
+  return { type: 'text', text: 'จ่าย/รับผ่านช่องทางไหนครับ?', quickReply: { items } };
+}
+
+function buildSlipQuickReply(draft, hasCategory, hasAccount) {
   const toggleLabel = draft.type === 'income' ? 'เปลี่ยนเป็นรายจ่าย' : 'เปลี่ยนเป็นรายรับ';
   return {
     items: [
@@ -163,6 +204,15 @@ function buildSlipQuickReply(draft, hasCategory) {
           label: hasCategory ? 'เปลี่ยนหมวด' : 'เลือกหมวด',
           data: `pick_category:${draft.id}`,
           displayText: hasCategory ? 'เปลี่ยนหมวด' : 'เลือกหมวด',
+        },
+      },
+      {
+        type: 'action',
+        action: {
+          type: 'postback',
+          label: hasAccount ? 'เปลี่ยนช่องทาง' : 'เลือกช่องทาง',
+          data: `pick_account:${draft.id}`,
+          displayText: hasAccount ? 'เปลี่ยนช่องทาง' : 'เลือกช่องทาง',
         },
       },
       { type: 'action', action: { type: 'postback', label: 'ยกเลิก', data: `cancel_slip:${draft.id}`, displayText: 'ยกเลิก' } },
@@ -232,17 +282,34 @@ async function handlePostback(event) {
     );
     if (!draft) return replyText(event.replyToken, 'รายการนี้ถูกยืนยันหรือยกเลิกไปแล้ว');
 
-    let categoryName = null;
-    if (categoryId) {
-      const { rows: [cat] } = await pool.query('SELECT name FROM finance.categories WHERE id = $1', [categoryId]);
-      categoryName = cat && cat.name;
-    }
-
+    // Right after a category is picked, ask for the payment channel too (unless
+    // one is already set -- e.g. the user is only changing the category).
+    const next = draft.account_id ? await slipSummaryMessage(draft) : await accountPickerMessage(draft, userId);
     return client
-      .replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: buildSlipSummary(draft, categoryName), quickReply: buildSlipQuickReply(draft, Boolean(categoryId)) }],
-      })
+      .replyMessage({ replyToken: event.replyToken, messages: [next] })
+      .catch((err) => console.error('slip reply failed', err));
+  }
+
+  if (action === 'pick_account') {
+    const { rows: [draft] } = await pool.query(
+      'SELECT * FROM finance.pending_slips WHERE id = $1 AND user_id = $2',
+      [pendingId, userId]
+    );
+    if (!draft) return replyText(event.replyToken, 'รายการนี้ถูกยืนยันหรือยกเลิกไปแล้ว');
+    return client
+      .replyMessage({ replyToken: event.replyToken, messages: [await accountPickerMessage(draft, userId)] })
+      .catch((err) => console.error('account picker reply failed', err));
+  }
+
+  if (action === 'set_account') {
+    const accountId = extra === 'none' ? null : extra;
+    const { rows: [draft] } = await pool.query(
+      'UPDATE finance.pending_slips SET account_id = $1 WHERE id = $2 AND user_id = $3 RETURNING *',
+      [accountId, pendingId, userId]
+    );
+    if (!draft) return replyText(event.replyToken, 'รายการนี้ถูกยืนยันหรือยกเลิกไปแล้ว');
+    return client
+      .replyMessage({ replyToken: event.replyToken, messages: [await slipSummaryMessage(draft)] })
       .catch((err) => console.error('slip summary reply failed', err));
   }
 
@@ -261,7 +328,7 @@ async function handlePostback(event) {
     return client
       .replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: buildSlipSummary(draft, null), quickReply: buildSlipQuickReply(draft, false) }],
+        messages: [await slipSummaryMessage(draft)],
       })
       .catch((err) => console.error('slip summary reply failed', err));
   }
@@ -278,9 +345,9 @@ async function handlePostback(event) {
   }
 
   await pool.query(
-    `INSERT INTO finance.transactions (user_id, type, amount, occurred_at, note, source, category_id)
-     VALUES ($1, $2, $3, COALESCE($4, now()), $5, 'slip', $6)`,
-    [userId, draft.type, draft.amount, draft.occurred_at, draft.note, draft.category_id]
+    `INSERT INTO finance.transactions (user_id, type, amount, occurred_at, note, source, category_id, account_id)
+     VALUES ($1, $2, $3, COALESCE($4, now()), $5, 'slip', $6, $7)`,
+    [userId, draft.type, draft.amount, draft.occurred_at, draft.note, draft.category_id, draft.account_id]
   );
   await pool.query('DELETE FROM finance.pending_slips WHERE id = $1', [pendingId]);
 
