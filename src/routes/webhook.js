@@ -5,9 +5,11 @@ const { extractSlipData } = require('../lib/anthropic');
 
 const router = express.Router();
 
-// Quick-log shorthand: "-150 กาแฟ" -> expense, "+500 โบนัส" -> income.
+// Quick-log shorthand: "-150 กาแฟ" -> expense, "+500 โบนัส" -> income, and the
+// note is optional ("-67", "+50"). A bare number with no sign and no note is
+// ignored so ordinary chat like "7" or "2026" never creates an entry.
 // Anything that doesn't match is left alone (treated as an ordinary chat message).
-const QUICK_LOG = /^([+-])?\s*(\d+(?:\.\d+)?)\s+(.+)$/;
+const QUICK_LOG = /^([+-])?\s*(\d+(?:\.\d+)?)(?:\s+(.+))?$/;
 
 if (config.channelSecret && config.channelAccessToken) {
   router.post('/', middleware(config), async (req, res) => {
@@ -38,6 +40,7 @@ async function handleEvent(event) {
 
   const userId = event.source.userId;
   const [, sign, amountStr, note] = match;
+  if (!sign && !note) return;
   const type = sign === '+' ? 'income' : 'expense';
   const amount = Number(amountStr);
 
@@ -45,27 +48,23 @@ async function handleEvent(event) {
     'INSERT INTO finance.users (line_user_id) VALUES ($1) ON CONFLICT DO NOTHING',
     [userId]
   );
-  await pool.query(
-    `INSERT INTO finance.transactions (user_id, type, amount, note, source)
-     VALUES ($1, $2, $3, $4, 'chat')`,
-    [userId, type, amount, note]
+
+  // Typed entries go through the same confirm flow as slips: category, then
+  // payment channel, then confirm. Nothing is saved to transactions until then.
+  const { rows: [draft] } = await pool.query(
+    `INSERT INTO finance.pending_slips (user_id, amount, note, type, source)
+     VALUES ($1, $2, $3, $4, 'chat')
+     RETURNING *`,
+    [userId, amount, note || null, type]
   );
 
-  // The transaction is already saved at this point — a reply failure (e.g. an
-  // expired reply token because we were slow) must not turn into a 500, or LINE
-  // will retry the whole webhook and insert this transaction a second time.
   try {
     await client.replyMessage({
       replyToken: event.replyToken,
-      messages: [
-        {
-          type: 'text',
-          text: `บันทึกแล้ว: ${type === 'expense' ? '-' : '+'}${amount.toLocaleString('th-TH')} บาท (${note})`,
-        },
-      ],
+      messages: [await categoryPickerMessage(draft, userId)],
     });
   } catch (err) {
-    console.error('reply failed (transaction was still saved)', err);
+    console.error('chat entry reply failed', err);
   }
 }
 
@@ -143,7 +142,7 @@ async function handleImageMessage(event) {
 
 function buildSlipSummary(draft, categoryName, accountName) {
   const sign = draft.type === 'income' ? '+' : '-';
-  const lines = [`อ่านได้: ${sign}${Number(draft.amount).toLocaleString('th-TH')} บาท${draft.note ? ` (${draft.note})` : ''}`];
+  const lines = [`${draft.source === 'chat' ? 'รายการ' : 'อ่านได้'}: ${sign}${Number(draft.amount).toLocaleString('th-TH')} บาท${draft.note ? ` (${draft.note})` : ''}`];
   if (draft.occurred_at) lines.push(`วันที่: ${String(draft.occurred_at).slice(0, 10)}`);
   lines.push(`หมวด: ${categoryName || 'ไม่ระบุ'}`);
   lines.push(`ช่องทาง: ${accountName || 'ไม่ระบุ'}`);
@@ -163,6 +162,36 @@ async function slipSummaryMessage(draft) {
     text: buildSlipSummary(draft, categoryName, accountName),
     quickReply: buildSlipQuickReply(draft, Boolean(categoryName), Boolean(accountName)),
   };
+}
+
+async function categoryPickerMessage(draft, userId) {
+  const { rows: categories } = await pool.query(
+    `SELECT c.id, c.name,
+            (SELECT max(t.created_at) FROM finance.transactions t WHERE t.category_id = c.id AND t.user_id = c.user_id) AS last_used
+     FROM finance.categories c
+     WHERE c.user_id = $1 AND c.type = $2
+     ORDER BY last_used DESC NULLS LAST, c.name ASC
+     LIMIT $3`,
+    [userId, draft.type, CATEGORY_PICKER_LIMIT]
+  );
+
+  const items = categories.map((c) => ({
+    type: 'action',
+    action: {
+      type: 'postback',
+      label: c.name.length > 20 ? c.name.slice(0, 19) + '…' : c.name,
+      data: `set_category:${draft.id}:${c.id}`,
+      displayText: c.name,
+    },
+  }));
+  items.push({
+    type: 'action',
+    action: { type: 'postback', label: 'ไม่ระบุหมวด', data: `set_category:${draft.id}:none`, displayText: 'ไม่ระบุหมวด' },
+  });
+
+  const sign = draft.type === 'income' ? '+' : '-';
+  const head = `${sign}${Number(draft.amount).toLocaleString('th-TH')} บาท${draft.note ? ` (${draft.note})` : ''}`;
+  return { type: 'text', text: `${head}\nเลือกหมวดครับ`, quickReply: { items } };
 }
 
 async function accountPickerMessage(draft, userId) {
@@ -242,35 +271,8 @@ async function handlePostback(event) {
     );
     if (!draft) return replyText(event.replyToken, 'รายการนี้ถูกยืนยันหรือยกเลิกไปแล้ว');
 
-    const { rows: categories } = await pool.query(
-      `SELECT c.id, c.name,
-              (SELECT max(t.created_at) FROM finance.transactions t WHERE t.category_id = c.id AND t.user_id = c.user_id) AS last_used
-       FROM finance.categories c
-       WHERE c.user_id = $1 AND c.type = $2
-       ORDER BY last_used DESC NULLS LAST, c.name ASC
-       LIMIT $3`,
-      [userId, draft.type, CATEGORY_PICKER_LIMIT]
-    );
-
-    const items = categories.map((c) => ({
-      type: 'action',
-      action: {
-        type: 'postback',
-        label: c.name.length > 20 ? c.name.slice(0, 19) + '…' : c.name,
-        data: `set_category:${pendingId}:${c.id}`,
-        displayText: c.name,
-      },
-    }));
-    items.push({
-      type: 'action',
-      action: { type: 'postback', label: 'ไม่ระบุหมวด', data: `set_category:${pendingId}:none`, displayText: 'ไม่ระบุหมวด' },
-    });
-
     return client
-      .replyMessage({
-        replyToken: event.replyToken,
-        messages: [{ type: 'text', text: 'เลือกหมวดครับ', quickReply: { items } }],
-      })
+      .replyMessage({ replyToken: event.replyToken, messages: [await categoryPickerMessage(draft, userId)] })
       .catch((err) => console.error('category picker reply failed', err));
   }
 
@@ -346,8 +348,8 @@ async function handlePostback(event) {
 
   await pool.query(
     `INSERT INTO finance.transactions (user_id, type, amount, occurred_at, note, source, category_id, account_id)
-     VALUES ($1, $2, $3, COALESCE($4, now()), $5, 'slip', $6, $7)`,
-    [userId, draft.type, draft.amount, draft.occurred_at, draft.note, draft.category_id, draft.account_id]
+     VALUES ($1, $2, $3, COALESCE($4, now()), $5, $6, $7, $8)`,
+    [userId, draft.type, draft.amount, draft.occurred_at, draft.note, draft.source, draft.category_id, draft.account_id]
   );
   await pool.query('DELETE FROM finance.pending_slips WHERE id = $1', [pendingId]);
 
