@@ -3,6 +3,7 @@ const pool = require('../lib/db');
 const { config, client, middleware } = require('../lib/line');
 const { extractSlipData } = require('../lib/anthropic');
 const { alertAdmin, isAnthropicAccountProblem } = require('../lib/adminAlert');
+const { suggestFor } = require('../lib/suggest');
 
 const router = express.Router();
 
@@ -90,13 +91,35 @@ async function handleEvent(event) {
     [userId, amount, note || null, type]
   );
 
+  // A merchant/note the user has filed before: pre-fill category and channel and
+  // go straight to the confirm summary. Otherwise ask for the category as usual.
+  const suggested = await applySuggestion(draft, userId);
+
   try {
     await client.replyMessage({
       replyToken: event.replyToken,
-      messages: [await categoryPickerMessage(draft, userId)],
+      messages: [suggested ? await slipSummaryMessage(suggested, { suggested: true }) : await categoryPickerMessage(draft, userId)],
     });
   } catch (err) {
     console.error('chat entry reply failed', err);
+  }
+}
+
+// Returns the draft updated with a history-based category/channel, or null when
+// there is nothing confident to suggest. Never throws: a failed suggestion must
+// not break the normal flow.
+async function applySuggestion(draft, userId) {
+  try {
+    const s = await suggestFor(userId, draft.note, draft.type);
+    if (!s) return null;
+    const { rows: [updated] } = await pool.query(
+      'UPDATE finance.pending_slips SET category_id = $1, account_id = $2 WHERE id = $3 AND user_id = $4 RETURNING *',
+      [s.categoryId, s.accountId, draft.id, userId]
+    );
+    return updated || null;
+  } catch (err) {
+    console.error('suggestion failed', err);
+    return null;
   }
 }
 
@@ -173,28 +196,30 @@ async function handleImageMessage(event) {
     [userId, extracted.amount, extracted.occurred_at, extracted.note, extracted.type]
   );
   const draft = rows[0];
+  const suggested = await applySuggestion(draft, userId);
 
   try {
     await client.replyMessage({
       replyToken: event.replyToken,
-      messages: [await slipSummaryMessage(draft)],
+      messages: [await slipSummaryMessage(suggested || draft, { suggested: Boolean(suggested) })],
     });
   } catch (err) {
     console.error('slip summary reply failed', err);
   }
 }
 
-function buildSlipSummary(draft, categoryName, accountName) {
+function buildSlipSummary(draft, categoryName, accountName, suggested) {
   const sign = draft.type === 'income' ? '+' : '-';
   const lines = [`${draft.source === 'chat' ? 'รายการ' : 'อ่านได้'}: ${sign}${Number(draft.amount).toLocaleString('th-TH')} บาท${draft.note ? ` (${draft.note})` : ''}`];
   if (draft.occurred_at) lines.push(`วันที่: ${String(draft.occurred_at).slice(0, 10)}`);
   lines.push(`หมวด: ${categoryName || 'ไม่ระบุ'}`);
   lines.push(`ช่องทาง: ${accountName || 'ไม่ระบุ'}`);
+  if (suggested) lines.push('', 'เลือกให้จากรายการที่เคยบันทึก ถ้าไม่ใช่ กดเปลี่ยนหมวด/ช่องทางได้');
   lines.push('', 'ยืนยันบันทึกไหมครับ?');
   return lines.join('\n');
 }
 
-async function slipSummaryMessage(draft) {
+async function slipSummaryMessage(draft, { suggested = false } = {}) {
   const [cat, acct] = await Promise.all([
     draft.category_id ? pool.query('SELECT name FROM finance.categories WHERE id = $1', [draft.category_id]) : null,
     draft.account_id ? pool.query('SELECT account_name FROM finance.accounts WHERE id = $1', [draft.account_id]) : null,
@@ -203,7 +228,7 @@ async function slipSummaryMessage(draft) {
   const accountName = acct && acct.rows[0] && acct.rows[0].account_name;
   return {
     type: 'text',
-    text: buildSlipSummary(draft, categoryName, accountName),
+    text: buildSlipSummary(draft, categoryName, accountName, suggested),
     quickReply: buildSlipQuickReply(draft, Boolean(categoryName), Boolean(accountName)),
   };
 }
