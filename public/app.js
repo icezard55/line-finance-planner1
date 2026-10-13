@@ -298,6 +298,39 @@ function buildDeltaBadge(pct, goodWhenUp) {
   return `<span class="delta ${Math.abs(pct) < 0.05 ? 'flat' : good ? 'good' : 'bad'}">${up ? '▲' : '▼'} ${Math.abs(pct).toFixed(1)}%</span>`;
 }
 
+// One total spending budget for the month (not per category): bar of how much
+// is used, what is left, and what that leaves per remaining day.
+function buildBudgetCard(limit, spent, daysLeft) {
+  if (!limit) {
+    return `<div class="card">
+      <div class="row" style="align-items:center;">
+        <div><h3 style="margin:0;">งบเดือนนี้</h3><p class="sub" style="margin:2px 0 0;">ตั้งงบรวมต่อเดือน แล้วดูว่าใช้ไปเท่าไหร่</p></div>
+        <button type="button" class="link-btn" data-set-budget>+ ตั้งงบ</button>
+      </div>
+    </div>`;
+  }
+  const pct = (spent / limit) * 100;
+  const status = pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok';
+  const remaining = limit - spent;
+  const perDay = remaining > 0 && daysLeft > 0 ? remaining / daysLeft : 0;
+  const note =
+    remaining < 0
+      ? `ใช้เกินงบ ${Math.abs(remaining).toLocaleString('th-TH')} บาท`
+      : `เหลือ ${remaining.toLocaleString('th-TH')} บาท · ใช้ได้วันละ ${Math.floor(perDay).toLocaleString('th-TH')} บาท (อีก ${daysLeft} วัน)`;
+  return `<div class="card">
+    <div class="row" style="align-items:center;margin-bottom:8px;">
+      <h3 style="margin:0;">งบเดือนนี้</h3>
+      <button type="button" class="link-btn" data-set-budget>แก้ไข</button>
+    </div>
+    <div class="row" style="align-items:baseline;">
+      <span class="stat ${status === 'ok' ? '' : 'expense'}">${spent.toLocaleString('th-TH')}</span>
+      <span class="sub">/ ${limit.toLocaleString('th-TH')} บาท · ${Math.min(999, pct).toFixed(0)}%</span>
+    </div>
+    <div class="cat-bar" style="margin-top:8px;"><div class="cat-bar-fill status-${status}" style="width:${Math.min(100, pct).toFixed(1)}%"></div></div>
+    <p class="sub" style="margin:8px 0 0;">${note}</p>
+  </div>`;
+}
+
 function buildDailyCumulativeSvg(thisSeries, lastSeries, daysInChart, today) {
   const w = 320;
   const h = 170;
@@ -328,13 +361,15 @@ async function renderDashboard() {
   const content = document.getElementById('content');
   content.innerHTML = '<p class="empty">กำลังโหลด...</p>';
 
-  const [transactions, reminders, budgets, cats, scoreReport] = await Promise.all([
+  const [transactions, reminders, budgets, cats, scoreReport, settings] = await Promise.all([
     authFetch('/transactions'),
     authFetch('/reminders'),
     authFetch('/budgets'),
     getCategories(),
     SHOW_SCORE_ON_DASHBOARD ? authFetch('/score') : null,
+    authFetch('/settings'),
   ]);
+  const monthlyBudget = settings && settings.monthly_budget;
   const catName = Object.fromEntries(cats.map((c) => [c.id, c.name]));
   const score = scoreReport && scoreReport.score;
 
@@ -444,6 +479,8 @@ async function renderDashboard() {
     </div>
     <p class="kpi-note">% เทียบกับเดือนก่อนในช่วงวันที่ 1-${todayDay}</p>
 
+    ${buildBudgetCard(monthlyBudget, expense, daysInThisMonth - todayDay + 1)}
+
     <div class="card">
       <div class="row" style="align-items:center;margin-bottom:10px;">
         <h3 style="margin:0;">${dashboardChartMode === 'daily' ? 'รายจ่ายสะสมรายวัน' : 'รายรับ-รายจ่าย 6 เดือน'}</h3>
@@ -531,6 +568,20 @@ async function renderDashboard() {
       }
     </div>
   `;
+
+  content.querySelectorAll('[data-set-budget]').forEach((btn) => {
+    btn.onclick = async () => {
+      const input = prompt('งบรวมต่อเดือน (บาท) ใส่ 0 เพื่อลบงบ', monthlyBudget || '');
+      if (input === null) return;
+      const n = Number(String(input).replace(/,/g, '').trim());
+      if (!Number.isFinite(n) || n < 0) {
+        alert('กรุณาใส่ตัวเลขเป็นจำนวนบาท');
+        return;
+      }
+      await authFetch('/settings', { method: 'PUT', body: JSON.stringify({ monthly_budget: n > 0 ? n : null }) });
+      renderDashboard();
+    };
+  });
 
   content.querySelectorAll('[data-chart-mode]').forEach((btn) => {
     btn.onclick = () => {

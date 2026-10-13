@@ -11,6 +11,7 @@ const insuranceBenefitsRouter = require('./routes/insuranceBenefits');
 const clientReport = require('./routes/clientReport');
 const adminRouter = require('./routes/admin');
 const crmRouter = require('./routes/crm');
+const settingsRouter = require('./routes/settings');
 const remindersJob = require('./jobs/reminders');
 const recurringJob = require('./jobs/recurring');
 const crmRemindersJob = require('./jobs/crmReminders');
@@ -64,6 +65,7 @@ for (const { path, table, columns } of modules) {
 
 api.use('/score', clientReport.personalRouter);
 api.use('/admin', adminRouter);
+api.use('/settings', settingsRouter);
 api.use('/crm', crmRouter);
 
 app.use('/api', api);
