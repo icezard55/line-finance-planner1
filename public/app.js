@@ -178,7 +178,7 @@ function authFetch(path, options = {}) {
 // Hidden for now (not deleted -- data, routes, and code all still work,
 // just not linked from the tab bar). Toggle a key back on here to restore it.
 const HIDDEN_TAB_KEYS = new Set([
-  'education', 'investment', 'profile',
+  'agent', 'education', 'investment', 'profile',
   'budgets', 'assets', 'liabilities', 'insurance-policies', 'goals',
   'family-members', 'reminders', 'employee-benefits', 'risk-assessments', 'recurring-transactions',
 ]);
@@ -321,6 +321,9 @@ function buildDailyCumulativeSvg(thisSeries, lastSeries, daysInChart, today) {
   </svg>`;
 }
 
+// Hidden for now like the tabs above: flip to true to bring the card back.
+const SHOW_SCORE_ON_DASHBOARD = false;
+
 async function renderDashboard() {
   const content = document.getElementById('content');
   content.innerHTML = '<p class="empty">กำลังโหลด...</p>';
@@ -330,10 +333,10 @@ async function renderDashboard() {
     authFetch('/reminders'),
     authFetch('/budgets'),
     getCategories(),
-    authFetch('/score'),
+    SHOW_SCORE_ON_DASHBOARD ? authFetch('/score') : null,
   ]);
   const catName = Object.fromEntries(cats.map((c) => [c.id, c.name]));
-  const score = scoreReport.score;
+  const score = scoreReport && scoreReport.score;
 
   const now = new Date();
   const todayDay = now.getDate();
@@ -483,7 +486,9 @@ async function renderDashboard() {
       }
     </div>
 
-    <div class="card">
+    ${
+      score
+        ? `<div class="card">
       <h3>คะแนนสุขภาพทางการเงิน</h3>
       <div class="gauge-wrap">
         ${buildScoreGaugeSvg(score.overall)}
@@ -498,7 +503,9 @@ async function renderDashboard() {
         </div>`
         )
         .join('')}
-    </div>
+    </div>`
+        : ''
+    }
 
     <div class="section-title row" style="align-items:center;">
       <span>ความเคลื่อนไหวล่าสุด</span>
