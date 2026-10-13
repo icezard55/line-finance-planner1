@@ -450,3 +450,68 @@ select:focus-visible {
 .crm-actions { gap: 12px; margin-top: 10px; align-items: center; }
 .crm-actions .primary { flex: 1; }
 .crm-danger { color: var(--danger); }
+
+/* ---- dashboard (ERP-style hero + KPI cards) ---- */
+.chart-legend .dot.muted { background: var(--muted); }
+
+.hero {
+  background: linear-gradient(150deg, #1c5c42 0%, #0e3d29 60%, #0a2e1e 100%);
+  color: #fff;
+  border-radius: 20px;
+  padding: 20px 20px 18px;
+  margin-bottom: 14px;
+  box-shadow: 0 6px 18px rgba(10, 46, 30, 0.25);
+}
+.hero-date { margin: 0 0 6px; font-size: 0.74rem; color: #cfe3d8; }
+.hero-title { margin: 0; font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; }
+.hero-sub { margin: 4px 0 14px; font-size: 0.82rem; color: #d9e6de; }
+.hero-actions { display: flex; gap: 10px; }
+.hero-btn {
+  flex: 1;
+  border: none;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  background: #e9c766;
+  color: #0a2e1e;
+}
+.hero-btn.ghost { background: rgba(255, 255, 255, 0.14); color: #fff; border: 1px solid rgba(255, 255, 255, 0.28); }
+.hero-btn:active { opacity: 0.85; }
+
+.kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.kpi {
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 1px 2px var(--shadow);
+}
+.kpi-label { margin: 0; font-size: 0.74rem; color: var(--muted); }
+.kpi-value { margin: 4px 0 6px; font-size: 1.25rem; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.kpi-value.income { color: var(--accent); }
+.kpi-value.expense { color: var(--danger); }
+.kpi-note { margin: 6px 4px 14px; font-size: 0.7rem; color: var(--muted); }
+
+.delta { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 100px; font-variant-numeric: tabular-nums; }
+.delta.good { background: var(--accent-soft); color: var(--accent); }
+.delta.bad { background: var(--danger-soft); color: var(--danger); }
+.delta.flat { background: var(--paper); color: var(--muted); font-weight: 500; }
+
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 100px; overflow: hidden; }
+.seg button { border: none; background: var(--paper); color: var(--muted); padding: 4px 12px; font-family: inherit; font-size: 0.74rem; font-weight: 600; }
+.seg button.on { background: var(--accent); color: var(--accent-ink); }
+
+.action-row {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  background: none; border: none; border-top: 1px solid var(--line);
+  padding: 11px 0; font-family: inherit; font-size: 0.86rem; color: var(--ink); text-align: left;
+}
+.action-row:first-child { border-top: none; }
+.action-n { min-width: 28px; text-align: center; font-weight: 800; font-size: 0.85rem; color: var(--warning); background: var(--paper); border-radius: 100px; padding: 2px 8px; }
+.action-go { margin-left: auto; color: var(--muted); font-size: 1.1rem; }
+
+.activity-sub { display: block; font-size: 0.72rem; color: var(--muted); }
+.amt-income { color: var(--accent); font-weight: 700; }
+.amt-expense { color: var(--danger); font-weight: 700; }

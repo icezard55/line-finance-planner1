@@ -276,6 +276,51 @@ async function getAccounts() {
   return accountsCache;
 }
 
+let dashboardChartMode = 'daily'; // 'daily' = cumulative expense vs last month, 'monthly' = last 6 months
+
+function greetingForHour(h) {
+  if (h < 12) return 'สวัสดีตอนเช้า';
+  if (h < 17) return 'สวัสดีตอนบ่าย';
+  return 'สวัสดีตอนเย็น';
+}
+
+// % change vs the same stretch of last month; null when there is nothing to compare to.
+function deltaPct(current, previous) {
+  if (!previous) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+// goodWhenUp: income/net rising is good (green), expense rising is bad (red).
+function buildDeltaBadge(pct, goodWhenUp) {
+  if (pct === null) return '<span class="delta flat">ไม่มีข้อมูลเดือนก่อน</span>';
+  const up = pct >= 0;
+  const good = up === goodWhenUp;
+  return `<span class="delta ${Math.abs(pct) < 0.05 ? 'flat' : good ? 'good' : 'bad'}">${up ? '▲' : '▼'} ${Math.abs(pct).toFixed(1)}%</span>`;
+}
+
+function buildDailyCumulativeSvg(thisSeries, lastSeries, daysInChart, today) {
+  const w = 320;
+  const h = 170;
+  const baseline = h - 24;
+  const maxVal = Math.max(1, ...thisSeries, ...lastSeries);
+  const x = (day) => 8 + ((day - 1) / Math.max(1, daysInChart - 1)) * (w - 16);
+  const y = (v) => baseline - (v / maxVal) * (baseline - 12);
+  const line = (series, upto) =>
+    series
+      .slice(0, upto)
+      .map((v, i) => `${x(i + 1).toFixed(1)},${y(v).toFixed(1)}`)
+      .join(' ');
+
+  const ticks = [1, 8, 15, 22, daysInChart].filter((d, i, a) => a.indexOf(d) === i);
+  return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="กราฟรายจ่ายสะสมรายวัน เทียบเดือนก่อน" style="width:100%;height:auto;display:block;">
+    <line x1="0" y1="${baseline}" x2="${w}" y2="${baseline}" stroke="var(--line)" stroke-width="1"></line>
+    <polyline points="${line(lastSeries, lastSeries.length)}" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="4 4" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    <polyline points="${line(thisSeries, today)}" fill="none" stroke="var(--danger)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    <circle cx="${x(today).toFixed(1)}" cy="${y(thisSeries[today - 1]).toFixed(1)}" r="4.5" fill="var(--danger)"></circle>
+    ${ticks.map((d) => `<text x="${x(d).toFixed(1)}" y="${h - 8}" text-anchor="middle" font-size="10" fill="var(--muted)">${d}</text>`).join('')}
+  </svg>`;
+}
+
 async function renderDashboard() {
   const content = document.getElementById('content');
   content.innerHTML = '<p class="empty">กำลังโหลด...</p>';
@@ -291,34 +336,153 @@ async function renderDashboard() {
   const score = scoreReport.score;
 
   const now = new Date();
-  const thisMonth = transactions.filter((t) => {
-    const d = new Date(t.occurred_at);
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-  });
-  const income = thisMonth.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
-  const expense = thisMonth.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
+  const todayDay = now.getDate();
+  const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const daysInThisMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const daysInPrevMonth = new Date(prevMonthDate.getFullYear(), prevMonthDate.getMonth() + 1, 0).getDate();
 
+  const inMonth = (t, ref) => {
+    const d = new Date(t.occurred_at);
+    return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth();
+  };
+  const sum = (rows, type) => rows.filter((t) => t.type === type).reduce((s, t) => s + Number(t.amount), 0);
+
+  const thisMonth = transactions.filter((t) => inMonth(t, now));
+  const prevMonth = transactions.filter((t) => inMonth(t, prevMonthDate));
+  // Compare like with like: last month only up to the same day-of-month as today.
+  const prevMonthSoFar = prevMonth.filter((t) => new Date(t.occurred_at).getDate() <= todayDay);
+
+  const income = sum(thisMonth, 'income');
+  const expense = sum(thisMonth, 'expense');
+  const net = income - expense;
+  const savingRate = income > 0 ? (net / income) * 100 : null;
+
+  const prevIncome = sum(prevMonthSoFar, 'income');
+  const prevExpense = sum(prevMonthSoFar, 'expense');
+  const prevNet = prevIncome - prevExpense;
+
+  const kpis = [
+    { label: 'รายรับเดือนนี้', value: `+${income.toLocaleString('th-TH')}`, cls: 'income', badge: buildDeltaBadge(deltaPct(income, prevIncome), true) },
+    { label: 'รายจ่ายเดือนนี้', value: `-${expense.toLocaleString('th-TH')}`, cls: 'expense', badge: buildDeltaBadge(deltaPct(expense, prevExpense), false) },
+    { label: 'คงเหลือสุทธิ', value: `${net < 0 ? '-' : ''}${Math.abs(net).toLocaleString('th-TH')}`, cls: net < 0 ? 'expense' : 'income', badge: buildDeltaBadge(prevNet ? deltaPct(net, Math.abs(prevNet)) : null, true) },
+    { label: 'อัตราการออม', value: savingRate === null ? '-' : `${savingRate.toFixed(1)}%`, cls: savingRate !== null && savingRate < 0 ? 'expense' : '', badge: `<span class="delta flat">${savingRate === null ? 'ยังไม่มีรายรับ' : savingRate >= 20 ? 'เกินเป้า 20%' : 'เป้า ≥ 20%'}</span>` },
+  ];
+
+  // Cumulative expense per day, this month vs last month.
+  const cumulative = (rows, days) => {
+    const perDay = Array(days).fill(0);
+    for (const t of rows) {
+      if (t.type !== 'expense') continue;
+      perDay[new Date(t.occurred_at).getDate() - 1] += Number(t.amount);
+    }
+    let running = 0;
+    return perDay.map((v) => (running += v));
+  };
+  const thisSeries = cumulative(thisMonth, daysInThisMonth);
+  const lastSeries = cumulative(prevMonth, daysInPrevMonth);
+
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ year: d.getFullYear(), month: d.getMonth(), income: 0, expense: 0 });
+  }
+  for (const t of transactions) {
+    const d = new Date(t.occurred_at);
+    const bucket = months.find((m) => m.year === d.getFullYear() && m.month === d.getMonth());
+    if (!bucket) continue;
+    if (t.type === 'income') bucket.income += Number(t.amount);
+    else bucket.expense += Number(t.amount);
+  }
+  const maxMonthVal = Math.max(1, ...months.flatMap((m) => [m.income, m.expense]));
+
+  // Things that need attention.
   const spentByCategory = {};
   for (const t of thisMonth) {
     if (t.type !== 'expense' || !t.category_id) continue;
     spentByCategory[t.category_id] = (spentByCategory[t.category_id] || 0) + Number(t.amount);
   }
-  const budgetRows = budgets.map((b) => {
-    const spent = spentByCategory[b.category_id] || 0;
-    const limit = Number(b.monthly_limit);
-    const pct = limit > 0 ? Math.min(100, (spent / limit) * 100) : 0;
-    const thresholdPct = b.alert_threshold_pct || 80;
-    const status = spent >= limit ? 'over' : limit > 0 && (spent / limit) * 100 >= thresholdPct ? 'warn' : 'ok';
-    return { name: catName[b.category_id] || 'ไม่ระบุหมวด', spent, limit, pct, status };
-  });
+  const overBudget = budgets.filter((b) => Number(b.monthly_limit) > 0 && (spentByCategory[b.category_id] || 0) >= Number(b.monthly_limit)).length;
+  const noCategory = thisMonth.filter((t) => !t.category_id).length;
+  const noAccount = thisMonth.filter((t) => !t.account_id).length;
+  const dueSoon = reminders.filter((r) => r.status === 'pending' && (new Date(r.due_date) - now) / 86400000 <= 7).length;
+  const actions = [
+    { n: noCategory, text: 'รายการเดือนนี้ที่ยังไม่ระบุหมวด', tab: 'transactions' },
+    { n: noAccount, text: 'รายการเดือนนี้ที่ยังไม่ระบุช่องทางชำระเงิน', tab: 'transactions' },
+    { n: overBudget, text: 'หมวดที่ใช้เกินงบเดือนนี้', tab: 'analysis' },
+    { n: dueSoon, text: 'แจ้งเตือนที่ครบกำหนดภายใน 7 วัน', tab: 'dashboard' },
+  ].filter((a) => a.n > 0);
 
-  const upcoming = reminders
-    .filter((r) => r.status === 'pending')
-    .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))
-    .slice(0, 5);
+  const rangeLabel = `${THAI_MONTHS[months[0].month]} ${String(months[0].year + 543).slice(2)} - ${THAI_MONTHS[months[5].month]} ${String(months[5].year + 543).slice(2)}`;
+  const userName = (document.getElementById('user-name') || {}).textContent || '';
+  const dateLabel = now.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   content.innerHTML = `
-    <nav class="nav-tiles">${buildNavTiles()}</nav>
+    <section class="hero">
+      <p class="hero-date">${escapeHtml(dateLabel)}</p>
+      <h2 class="hero-title">${greetingForHour(now.getHours())}${userName ? ', ' + escapeHtml(userName) : ''}</h2>
+      <p class="hero-sub">ภาพรวมการเงินเดือน ${THAI_MONTHS[now.getMonth()]} ${now.getFullYear() + 543} · ${thisMonth.length} รายการ</p>
+      <div class="hero-actions">
+        <button type="button" class="hero-btn" onclick="goToTab('transactions')">+ จดรายการ</button>
+        <button type="button" class="hero-btn ghost" onclick="goToTab('analysis')">วิเคราะห์</button>
+      </div>
+    </section>
+
+    <div class="kpi-grid">
+      ${kpis
+        .map(
+          (k) => `
+        <div class="kpi">
+          <p class="kpi-label">${k.label}</p>
+          <p class="kpi-value ${k.cls}">${k.value}</p>
+          ${k.badge}
+        </div>`
+        )
+        .join('')}
+    </div>
+    <p class="kpi-note">% เทียบกับเดือนก่อนในช่วงวันที่ 1-${todayDay}</p>
+
+    <div class="card">
+      <div class="row" style="align-items:center;margin-bottom:10px;">
+        <h3 style="margin:0;">${dashboardChartMode === 'daily' ? 'รายจ่ายสะสมรายวัน' : 'รายรับ-รายจ่าย 6 เดือน'}</h3>
+        <span class="seg">
+          <button type="button" class="${dashboardChartMode === 'daily' ? 'on' : ''}" data-chart-mode="daily">รายวัน</button>
+          <button type="button" class="${dashboardChartMode === 'monthly' ? 'on' : ''}" data-chart-mode="monthly">รายเดือน</button>
+        </span>
+      </div>
+      ${
+        dashboardChartMode === 'daily'
+          ? `${buildDailyCumulativeSvg(thisSeries, lastSeries, Math.max(daysInThisMonth, daysInPrevMonth), todayDay)}
+      <div class="chart-legend">
+        <span><i class="dot expense"></i>${THAI_MONTHS[now.getMonth()]} (สะสม ${expense.toLocaleString('th-TH')})</span>
+        <span><i class="dot muted"></i>${THAI_MONTHS[prevMonthDate.getMonth()]}</span>
+      </div>`
+          : `<p class="sub" style="margin:-4px 0 6px;">${rangeLabel}</p>
+      ${buildMonthlyChartSvg(months, maxMonthVal)}
+      <div class="chart-legend">
+        <span><i class="dot income"></i>รายรับ</span>
+        <span><i class="dot expense"></i>รายจ่าย</span>
+      </div>`
+      }
+    </div>
+
+    <div class="section-title">ต้องดำเนินการ</div>
+    <div class="card">
+      ${
+        actions.length
+          ? actions
+              .map(
+                (a) => `
+        <button type="button" class="action-row" onclick="goToTab('${a.tab}')">
+          <span class="action-n">${a.n}</span>
+          <span>${a.text}</span>
+          <span class="action-go">›</span>
+        </button>`
+              )
+              .join('')
+          : '<p class="empty">ไม่มีเรื่องค้าง เรียบร้อยดี</p>'
+      }
+    </div>
+
     <div class="card">
       <h3>คะแนนสุขภาพทางการเงิน</h3>
       <div class="gauge-wrap">
@@ -335,57 +499,38 @@ async function renderDashboard() {
         )
         .join('')}
     </div>
-    <div class="card">
-      <h3>เดือนนี้</h3>
-      <div class="row">
-        <span class="stat income">+${income.toLocaleString('th-TH')}</span>
-        <span class="stat expense">-${expense.toLocaleString('th-TH')}</span>
-      </div>
-      <div class="sub">รายรับ / รายจ่าย</div>
+
+    <div class="section-title row" style="align-items:center;">
+      <span>ความเคลื่อนไหวล่าสุด</span>
+      <button type="button" class="link-btn" onclick="goToTab('transactions')">ดูทั้งหมด</button>
     </div>
-    ${
-      budgetRows.length
-        ? `<div class="section-title">งบประมาณเดือนนี้</div>
-    <div class="card">
-      ${budgetRows
-        .map(
-          (b) => `
-        <div class="cat-row">
-          <div class="cat-row-top"><span>${escapeHtml(b.name)}</span><span>${b.spent.toLocaleString('th-TH')} / ${b.limit.toLocaleString('th-TH')}</span></div>
-          <div class="cat-bar"><div class="cat-bar-fill status-${b.status}" style="width:${b.pct.toFixed(1)}%"></div></div>
-        </div>`
-        )
-        .join('')}
-    </div>`
-        : ''
-    }
-    <div class="section-title">แจ้งเตือนใกล้ถึง</div>
     <div class="card">
       ${
-        upcoming.length
-          ? upcoming
-              .map(
-                (r) => `<div class="list-item"><span>${escapeHtml(r.title)}</span><span class="meta">${r.due_date.slice(0, 10)}</span></div>`
-              )
-              .join('')
-          : '<p class="empty">ไม่มีแจ้งเตือนที่ใกล้ถึง</p>'
-      }
-    </div>
-    <div class="section-title">รายการล่าสุด</div>
-    <div class="card">
-      ${
-        transactions.slice(0, 5).length
+        transactions.slice(0, 6).length
           ? transactions
-              .slice(0, 5)
+              .slice(0, 6)
               .map(
-                (t) =>
-                  `<div class="list-item"><span>${escapeHtml(t.note || (t.type === 'income' ? 'รายรับ' : 'รายจ่าย'))}</span><span class="meta">${t.type === 'income' ? '+' : '-'}${Number(t.amount).toLocaleString('th-TH')}</span></div>`
+                (t) => `
+        <div class="list-item">
+          <span>
+            ${escapeHtml(t.note || (t.type === 'income' ? 'รายรับ' : 'รายจ่าย'))}
+            <small class="activity-sub">${escapeHtml(t.category_id ? catName[t.category_id] || '' : 'ไม่ระบุหมวด')} · ${(t.occurred_at || '').slice(0, 10)}</small>
+          </span>
+          <span class="meta ${t.type === 'income' ? 'amt-income' : 'amt-expense'}">${t.type === 'income' ? '+' : '-'}${Number(t.amount).toLocaleString('th-TH')}</span>
+        </div>`
               )
               .join('')
           : '<p class="empty">ยังไม่มีรายการ</p>'
       }
     </div>
   `;
+
+  content.querySelectorAll('[data-chart-mode]').forEach((btn) => {
+    btn.onclick = () => {
+      dashboardChartMode = btn.dataset.chartMode;
+      renderDashboard();
+    };
+  });
 }
 
 const THAI_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
@@ -641,25 +786,6 @@ function buildScoreGaugeSvg(score) {
     <text x="66" y="63" text-anchor="middle" font-size="28" font-weight="800" fill="var(--ink)">${score}</text>
     <text x="66" y="82" text-anchor="middle" font-size="12" fill="var(--muted)">/ 100</text>
   </svg>`;
-}
-
-// Only tiles pointing at tabs that are still in the tab bar (see HIDDEN_TAB_KEYS
-// in renderTabs) -- add tiles back here if those tabs get un-hidden.
-const NAV_TILES = [
-  {
-    key: 'analysis', label: 'ภาพรวมการเงิน',
-    icon: '<rect x="4" y="12" width="4" height="8" rx="1"></rect><rect x="10" y="7" width="4" height="13" rx="1"></rect><rect x="16" y="3" width="4" height="17" rx="1"></rect>',
-  },
-];
-
-function buildNavTiles() {
-  return NAV_TILES.map(
-    (t) => `
-    <button class="nav-tile" onclick="goToTab('${t.key}')" type="button">
-      <svg viewBox="0 0 24 24" width="26" height="26">${t.icon}</svg>
-      <span>${t.label}</span>
-    </button>`
-  ).join('');
 }
 
 async function renderProfile() {
