@@ -399,11 +399,23 @@ async function renderDashboard() {
   const prevExpense = sum(prevMonthSoFar, 'expense');
   const prevNet = prevIncome - prevExpense;
 
+  // Average daily spend so far this month, against last month's full-month daily average.
+  const avgDaily = expense / todayDay;
+  const prevAvgDaily = sum(prevMonth, 'expense') / daysInPrevMonth;
+  const projected = avgDaily * daysInThisMonth;
+
   const kpis = [
     { label: 'รายรับเดือนนี้', value: `+${income.toLocaleString('th-TH')}`, cls: 'income', badge: buildDeltaBadge(deltaPct(income, prevIncome), true) },
     { label: 'รายจ่ายเดือนนี้', value: `-${expense.toLocaleString('th-TH')}`, cls: 'expense', badge: buildDeltaBadge(deltaPct(expense, prevExpense), false) },
     { label: 'คงเหลือสุทธิ', value: `${net < 0 ? '-' : ''}${Math.abs(net).toLocaleString('th-TH')}`, cls: net < 0 ? 'expense' : 'income', badge: buildDeltaBadge(prevNet ? deltaPct(net, Math.abs(prevNet)) : null, true) },
     { label: 'อัตราการออม', value: savingRate === null ? '-' : `${savingRate.toFixed(1)}%`, cls: savingRate !== null && savingRate < 0 ? 'expense' : '', badge: `<span class="delta flat">${savingRate === null ? 'ยังไม่มีรายรับ' : savingRate >= 20 ? 'เกินเป้า 20%' : 'เป้า ≥ 20%'}</span>` },
+    {
+      label: 'เฉลี่ยรายจ่ายต่อวัน',
+      value: `${Math.round(avgDaily).toLocaleString('th-TH')} บาท`,
+      cls: '',
+      wide: true,
+      badge: `${buildDeltaBadge(deltaPct(avgDaily, prevAvgDaily), false)} <span class="delta flat">เทียบค่าเฉลี่ยเดือนก่อน</span> <span class="delta flat">คาดสิ้นเดือน ≈ ${Math.round(projected).toLocaleString('th-TH')}</span>`,
+    },
   ];
 
   // Cumulative expense per day, this month vs last month.
@@ -469,7 +481,7 @@ async function renderDashboard() {
       ${kpis
         .map(
           (k) => `
-        <div class="kpi">
+        <div class="kpi${k.wide ? ' wide' : ''}">
           <p class="kpi-label">${k.label}</p>
           <p class="kpi-value ${k.cls}">${k.value}</p>
           ${k.badge}
