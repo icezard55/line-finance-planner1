@@ -14,6 +14,7 @@ const crmRouter = require('./routes/crm');
 const remindersJob = require('./jobs/reminders');
 const recurringJob = require('./jobs/recurring');
 const crmRemindersJob = require('./jobs/crmReminders');
+const keyExpiryJob = require('./jobs/keyExpiry');
 
 const app = express();
 
@@ -78,4 +79,5 @@ app.listen(port, () => {
   remindersJob.start();
   recurringJob.start();
   crmRemindersJob.start();
+  keyExpiryJob.start();
 });

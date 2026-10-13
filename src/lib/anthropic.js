@@ -35,7 +35,10 @@ async function extractSlipData(imageBase64, mediaType = 'image/jpeg') {
 
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
-    throw new Error(`Anthropic API failed: ${res.status} ${detail}`);
+    const err = new Error(`Anthropic API failed: ${res.status} ${detail}`);
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
   }
 
   const body = await res.json();

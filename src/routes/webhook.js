@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../lib/db');
 const { config, client, middleware } = require('../lib/line');
 const { extractSlipData } = require('../lib/anthropic');
+const { alertAdmin, isAnthropicAccountProblem } = require('../lib/adminAlert');
 
 const router = express.Router();
 
@@ -12,13 +13,14 @@ const router = express.Router();
 const QUICK_LOG = /^([+-])?\s*(\d+(?:\.\d+)?)(?:\s+(.+))?$/;
 
 if (config.channelSecret && config.channelAccessToken) {
-  router.post('/', middleware(config), async (req, res) => {
-    try {
-      await Promise.all(req.body.events.map(handleEvent));
-      res.sendStatus(200);
-    } catch (err) {
-      console.error('webhook handling failed', err);
-      res.sendStatus(500);
+  // Acknowledge immediately and work in the background. Reading a slip takes a
+  // few seconds, LINE gives up on the request after ~2s and re-sends the event,
+  // and a re-sent image would be read (and billed) a second time.
+  router.post('/', middleware(config), (req, res) => {
+    res.sendStatus(200);
+    for (const event of req.body.events) {
+      if (isDuplicateEvent(event)) continue;
+      handleEvent(event).catch((err) => console.error('webhook event failed', err));
     }
   });
 } else {
@@ -27,6 +29,19 @@ if (config.channelSecret && config.channelAccessToken) {
   router.post('/', (req, res) => {
     res.status(503).json({ error: 'LINE channel not configured — set LINE_CHANNEL_SECRET and LINE_CHANNEL_ACCESS_TOKEN in .env' });
   });
+}
+
+// LINE can still deliver the same event twice (e.g. a retry racing the first ack).
+const SEEN_EVENT_LIMIT = 2000;
+const seenEvents = new Set();
+
+function isDuplicateEvent(event) {
+  const id = event.webhookEventId;
+  if (!id) return false;
+  if (seenEvents.has(id)) return true;
+  seenEvents.add(id);
+  if (seenEvents.size > SEEN_EVENT_LIMIT) seenEvents.delete(seenEvents.values().next().value);
+  return false;
 }
 
 async function handleEvent(event) {
@@ -84,9 +99,10 @@ async function handleImageMessage(event) {
 
   const { rows: [user] } = await pool.query('SELECT plan FROM finance.users WHERE line_user_id = $1', [userId]);
   if (user.plan !== 'premium') {
+    // Every successful read counts, confirmed or not -- the API cost is spent either way.
     const { rows: [{ count }] } = await pool.query(
-      `SELECT count(*) FROM finance.transactions
-       WHERE user_id = $1 AND source = 'slip' AND created_at >= date_trunc('month', now())`,
+      `SELECT count(*) FROM finance.slip_reads
+       WHERE user_id = $1 AND created_at >= date_trunc('month', now())`,
       [userId]
     );
     if (Number(count) >= FREE_SLIP_MONTHLY_LIMIT) {
@@ -115,8 +131,19 @@ async function handleImageMessage(event) {
     extracted = await extractSlipData(imageBase64);
   } catch (err) {
     console.error('slip extraction failed', err);
+    if (isAnthropicAccountProblem(err)) {
+      const reason = err.status === 400 ? 'เครดิต Anthropic หมด' : 'API key ใช้ไม่ได้หรือหมดอายุ';
+      alertAdmin(
+        'anthropic-account',
+        `ระบบอ่านสลิปหยุดทำงาน: ${reason} (Anthropic ตอบ ${err.status})
+แก้ที่ console.anthropic.com แล้วอัปเดต ANTHROPIC_API_KEY ใน Railway`
+      ).catch(() => {});
+    }
     return replyText(event.replyToken, 'อ่านสลิปไม่สำเร็จ รบกวนพิมพ์บันทึกเองแทนนะครับ เช่น -150 กาแฟ');
   }
+
+  // The API call went through, so this read counts toward the monthly quota.
+  await pool.query('INSERT INTO finance.slip_reads (user_id) VALUES ($1)', [userId]);
 
   if (extracted.amount === null) {
     return replyText(event.replyToken, 'อ่านจำนวนเงินในสลิปไม่ชัดเจน รบกวนพิมพ์บันทึกเองแทนนะครับ เช่น -150 กาแฟ');
