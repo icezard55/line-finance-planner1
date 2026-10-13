@@ -31,6 +31,20 @@ if (config.channelSecret && config.channelAccessToken) {
   });
 }
 
+// Sent when someone taps "วิธีใช้" on the rich menu (that button sends this text).
+const HOW_TO_TEXT = [
+  'วิธีใช้ Planเงิน plan ชีวิต',
+  '',
+  '1) พิมพ์บันทึกในแชท',
+  '   -150 กาแฟ  = รายจ่าย',
+  '   +500 โบนัส = รายรับ',
+  '   แล้วเลือกหมวด/ช่องทางชำระเงิน กดยืนยัน',
+  '',
+  '2) ส่งรูปสลิป AI จะอ่านยอดให้ แล้วเลือกหมวด/ช่องทาง กดยืนยัน',
+  '',
+  '3) ปุ่มเมนูด้านล่าง: สรุป วิเคราะห์ รายการ และหมวดหมู่ (เพิ่ม/แก้ชื่อหมวดได้เอง)',
+].join('\n');
+
 // LINE can still deliver the same event twice (e.g. a retry racing the first ack).
 const SEEN_EVENT_LIMIT = 2000;
 const seenEvents = new Set();
@@ -50,7 +64,10 @@ async function handleEvent(event) {
   if (event.message.type === 'image') return handleImageMessage(event);
   if (event.message.type !== 'text') return;
 
-  const match = event.message.text.trim().match(QUICK_LOG);
+  const text = event.message.text.trim();
+  if (text === 'วิธีใช้') return replyText(event.replyToken, HOW_TO_TEXT);
+
+  const match = text.match(QUICK_LOG);
   if (!match) return;
 
   const userId = event.source.userId;
